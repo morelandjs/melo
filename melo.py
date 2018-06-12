@@ -9,33 +9,26 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-today = datetime.today()
-time = np.datetime64(datetime(today.year, today.month, today.day))
-
-games = []
-
-for rand in np.random.normal(1, 2, size=10**5):
-    time -= np.timedelta64(1, 's')
-    games.append((time, 'CLE', 'MIA', rand))
-
 class MarginElo:
-    def __init__(self, comparisons, nlines=100, k=0.0001):
+    """
+    Margin-depedent Elo ratings and predictions inspired by the
+    Bradley-Terry model.
+
+    Described in https://arxiv.org/abs/1802.00527
+
+    """
+    def __init__(self, times, labels1, labels2, values, nlines=200, k=1e-4):
         """
-        MarginElo takes one required argument 'comparisons' which is a list of,
-
-        (date, alpha, beta, value)
-
-        where 'date' is a Python datetime object, 'alpha' and 'beta' are names
-        (strings) of the entities being compared, and 'value' is the relative
-        comparison value, e.g. a score difference.
+        To do, document this.
 
         """
         self.comparisons = np.sort(
-            np.array(
-                comparisons, dtype=[
+            np.rec.fromarrays(
+                [times, labels1, labels2, values],
+                dtype=[
                     ('time', 'M8[us]'),
-                    ('alpha',    'U8'),
-                    ('beta',     'U8'),
+                    ('label1',   'U8'),
+                    ('label2',   'U8'),
                     ('value',    'f8'),
                 ]
             ), axis=0
@@ -58,7 +51,7 @@ class MarginElo:
 
     def naive_prior(self, values, lines):
         """
-        Initialize ratings that respect the naive probability P(value > line),
+        Initial ratings which respect the naive probability P(value > line),
         determined from the minimum bias value distribution.
 
         """
@@ -68,12 +61,12 @@ class MarginElo:
         )
         return np.sqrt(2)/2*erfinv(2*prob - 1)
 
-    def query_rating(self, time, name):
+    def query_rating(self, time, label):
         """
         Find the last rating preceeding the specified 'time'.
 
         """
-        ratings = [r for t, r in self.ratings[name] if t < time]
+        ratings = [r for t, r in self.ratings[label] if t < time]
 
         return ratings.pop()
 
@@ -82,98 +75,94 @@ class MarginElo:
         Apply the margin dependent Elo model to the list of binary comparisons.
 
         """
-        median = np.median(comparisons['value'])
-        std = np.std(comparisons['value'])
+        median = np.median(comparisons.value)
+        std = np.std(comparisons.value)
 
         # standardize the data
-        comparisons['value'] -= median
-        comparisons['value'] /= std
+        comparisons.value -= median
+        comparisons.value /= std
 
         # create standardized comparison lines
-        extremum = np.percentile(np.abs(comparisons['value']), 99.9)
+        extremum = np.percentile(np.abs(comparisons.value), 99.9)
         lines = np.linspace(-extremum, extremum, self.nlines)
 
         # determine naive prior
-        default_rating = self.naive_prior(comparisons['value'], lines)
+        default_rating = self.naive_prior(comparisons.value, lines)
         current_rating = defaultdict(lambda: default_rating)
         ratings = defaultdict(list)
 
-        for (time, alpha, beta, value) in comparisons:
+        for (time, label1, label2, value) in comparisons:
 
             # lookup ratings
-            alpha_rtg, beta_rtg = [
-                current_rating[name] for name in (alpha, beta)
-            ]
-
-            # ratings difference
-            rtg_diff = alpha_rtg - beta_rtg[::-1]
+            rating1 = current_rating[label1]
+            rating2 = current_rating[label2]
 
             # prior and posterior outcome probabilities
-            prior = self.norm_cdf(rtg_diff)
+            prior = self.norm_cdf(rating1 - rating2[::-1])
             post = np.heaviside(value - lines, 0.5)
 
             # rating change
-            rtg_change = self.k * (post - prior)
+            rating_change = self.k * (post - prior)
 
             # save current rating
-            current_rating[alpha] = alpha_rtg + rtg_change
-            current_rating[beta] = beta_rtg - rtg_change
+            current_rating[label1] = rating1 + rating_change
+            current_rating[label2] = rating2 - rating_change
 
             # record ratings
-            ratings[alpha].append((time, alpha_rtg + rtg_change))
-            ratings[beta].append((time, beta_rtg - rtg_change))
+            ratings[label1].append((time, rating1 + rating_change))
+            ratings[label2].append((time, rating2 - rating_change))
 
         lines *= std
         lines += median
 
         return lines, ratings
 
-    def prior_cdf(self, time, alpha, beta):
+    def prior_cdf(self, time, label1, label2):
         """
         Prior cumulative probability distribution for a comparison between
-        alpha and beta at specified 'time'.
+        label1 and label2 at specified 'time'.
 
         """
         # lookup ratings
-        alpha_rtg, beta_rtg = [
-            self.query_rating(time, name) for name in (alpha, beta)
-        ]
-
-        # ratings difference
-        rtg_diff = alpha_rtg - beta_rtg[::-1]
+        rating1 = self.query_rating(time, label1)
+        rating2 = self.query_rating(time, label2)
 
         # prior and posterior outcome probabilities
-        prior = self.norm_cdf(rtg_diff)
+        prior = self.norm_cdf(rating1 - rating2[::-1])
 
         return self.lines, prior
 
-    def samples(self, time, alpha, beta, size=10**6):
+    def samples(self, time, label1, label2, size=10**6):
         """
         Draw random samples from the prior.
 
         """
-        lines, prior = self.prior_cdf(time, alpha, beta)
+        lines, prior = self.prior_cdf(time, label1, label2)
         assert np.all(np.diff(prior[::-1]) > 0)
         return np.interp(np.random.rand(size), prior[::-1], lines[::-1])
 
 def main():
-    elo = MarginElo(games)
+
+    size = 10**5
+    today = datetime.today()
+    time = datetime(today.year, today.month, today.day)
+    times = [np.datetime64(time) - np.timedelta64(n, 's') for n in range(size)]
+    labels1 = size*['CLE']
+    labels2 = size*['MIA']
+    values = np.random.normal(1, 2, size=size)
+
+    elo = MarginElo(times, labels1, labels2, values)
 
     today = datetime.today()
     time = np.datetime64(datetime(today.year, today.month, today.day))
 
-    samples = elo.samples(time, 'CLE', 'MIA')
-    plt.hist(samples, bins=100)
+    true = np.random.normal(1, 2, size=10**6)
+    pred = elo.samples(time, 'CLE', 'MIA')
+
+    for samples in (true, pred):
+        plt.hist(samples, histtype='step', bins=100, density=True)
+
     plt.show()
-
-    #l = np.linspace(-4, 8, 1000)
-    #p = elo.norm_cdf(l, loc=1, scale=2)
-    #plt.plot(l, 1 - p, color='k')
-
-    #l, p = elo.prior_cdf(time, 'CLE', 'MIA')
-    #plt.scatter(l[1:], -np.diff(p))
-    #plt.ylim(1e-4, 1)
-    #plt.yscale('log')
 
 
 if __name__ == "__main__":
