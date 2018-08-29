@@ -44,13 +44,15 @@ class PoissonLeague:
 
 def main():
     plt.figure(figsize=(6, 3.375))
-    league = PoissonLeague(handicap=0, cycles=1e4)
+    league = PoissonLeague(handicap=3, cycles=1e4)
 
     elo = Elo(
         league.times,
         league.labels1,
         league.labels2,
-        league.outcomes,
+        league.values,
+        lines=3,
+        k=0.01
     )
 
     lambda1 = league.lambdas[0]

@@ -12,12 +12,21 @@ class Elo:
     Elo ratings and predictions based on the Bradley-Terry model.
 
     """
-    def __init__(self, times, labels1, labels2, outcomes, k=None):
+    def __init__(self, times, labels1, labels2, values, lines=0, k=None):
         """
         Provide a list of binary comparisons:
-        times, labels1, labels2, outcomes
+        times, labels1, labels2, values
 
         """
+        self.values = np.array(values, ndmin=1, dtype=float)
+        self.lines = np.array(lines, ndmin=1, dtype=float)
+
+        outcomes = np.tile(
+            self.values[:, np.newaxis], self.lines.size
+        ) > self.lines
+
+        outcomes = (outcomes if self.lines.size > 1 else outcomes.ravel())
+
         self.comparisons = np.sort(
             np.rec.fromarrays(
                 [times, labels1, labels2, outcomes],
@@ -25,7 +34,7 @@ class Elo:
                     ('time', 'M8[us]'),
                     ('label1',   'U8'),
                     ('label2',   'U8'),
-                    ('outcome',   '?'),
+                    ('outcome',   '?', self.lines.size),
                 ]
             ), axis=0
         )
@@ -50,7 +59,10 @@ class Elo:
         Naive prior that label1 beats label2.
 
         """
-        prob = np.count_nonzero(outcomes) / np.size(outcomes)
+        prob = np.count_nonzero(outcomes, axis=0) / np.size(outcomes, axis=0)
+
+        TINY = 1e-6
+        prob = np.clip(prob, TINY, 1 - TINY)
 
         return np.sqrt(2)/2*erfinv(2*prob - 1)
 
@@ -108,8 +120,8 @@ class Elo:
                 ratings[label],
                 dtype=[
                     ('time',  'M8[us]'),
-                    ('under', 'f8'),
-                    ('over',  'f8'),
+                    ('under', 'f8', self.lines.size),
+                    ('over',  'f8', self.lines.size),
                 ]
             )
 
