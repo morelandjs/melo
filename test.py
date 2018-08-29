@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import numpy as np
 
-from melo import Elo
+from melo import Melo
 
 
 class PoissonLeague:
@@ -44,28 +44,28 @@ class PoissonLeague:
 
 def main():
     plt.figure(figsize=(6, 3.375))
-    league = PoissonLeague(handicap=3, cycles=1e4)
+    league = PoissonLeague(handicap=3, cycles=1e5)
 
-    elo = Elo(
+    melo = Melo(
         league.times,
         league.labels1,
         league.labels2,
         league.values,
         lines=3,
-        k=0.01
+        k=0.005
     )
 
     lambda1 = league.lambdas[0]
     times, ratings1 = [
-        elo.ratings[str(lambda1)][k]
+        melo.ratings[str(lambda1)][k]
         for k in ('time', 'over')
     ]
 
     for lambda2 in league.lambdas[1:]:
 
         # elo predicted win probability
-        ratings2 = elo.ratings[str(lambda2)]['under']
-        pred = elo.norm_cdf(ratings1 - ratings2)
+        ratings2 = melo.ratings[str(lambda2)]['under']
+        pred = melo.norm_cdf(ratings1 - ratings2)
         plt.plot(times, pred)
 
         # true win probability

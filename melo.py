@@ -7,19 +7,41 @@ from scipy.special import erf, erfinv
 from scipy.optimize import minimize_scalar
 
 
-class Elo:
+class Melo:
     """
-    Elo ratings and predictions based on the Bradley-Terry model.
+    Melo(times, labels1, labels2, values, lines=0, k=None)
+
+    Margin-dependent Elo ratings and predictions.
+
+    This class calculates Elo ratings from binary comparisons determined by a
+    list of values (outcomes of each comparison) and a specified line (or
+    sequence of lines) which determines the threshold of comparison.
+
+    **Required parameters**
+
+    These must be list-like objects of length *n_comparisons*, where the
+    number of comparisons must be the same for all lists.
+
+    - *times* -- comparison time stamp
+
+    - *labels1* -- first entity's label name
+
+    - *labels2* -- second entity's label name
+
+    - *values* -- comparison value
+
+    **Optional parameters**
+
+    - *lines* -- comparison threshold line(s)
+
+    - *k* -- rating update factor
+
 
     """
     def __init__(self, times, labels1, labels2, values, lines=0, k=None):
-        """
-        Provide a list of binary comparisons:
-        times, labels1, labels2, values
 
-        """
-        self.values = np.array(values, ndmin=1, dtype=float)
-        self.lines = np.array(lines, ndmin=1, dtype=float)
+        self.values = np.array(values, dtype=float)
+        self.lines = np.array(lines, dtype=float)
 
         outcomes = np.tile(
             self.values[:, np.newaxis], self.lines.size
@@ -93,19 +115,20 @@ class Elo:
 
         error = 0
 
+        # loop over all binary comparisons
         for (time, label1, label2, outcome) in self.comparisons:
 
-            # lookup team ratings
+            # lookup label ratings
             rating1 = rtg_over[label1]
             rating2 = rtg_under[label2]
 
-            # prior and posterior outcome probabilities
+            # prior prediction and observed outcome
             prior = self.norm_cdf(rating1 - rating2)
-            post = np.where(outcome, 1, 0)
+            observed = np.where(outcome, 1, 0)
 
             # rating change
-            rating_change = k * (post - prior)
-            error += (post - prior)**2
+            rating_change = k * (observed - prior)
+            error += (observed - prior)**2
 
             # update current rating
             rtg_over[label1] += rating_change
@@ -115,6 +138,7 @@ class Elo:
             ratings[label1].append((time, rtg_under[label1], rtg_over[label1]))
             ratings[label2].append((time, rtg_under[label2], rtg_over[label2]))
 
+        # recast as a structured array for convenience
         for label in ratings.keys():
             ratings[label] = np.array(
                 ratings[label],
