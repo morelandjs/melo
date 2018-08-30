@@ -101,6 +101,7 @@ class Melo:
 
         """
         ratings = self.ratings[label]
+
         return ratings[ratings['time'] < time][-1]
 
     def rate(self, k):
@@ -128,15 +129,19 @@ class Melo:
 
             # rating change
             rating_change = k * (observed - prior)
-            error += (observed - prior)**2
+            error += np.square(observed - prior).sum()
 
-            # update current rating
-            rtg_over[label1] += rating_change
-            rtg_under[label2] -= rating_change
+            # update current ratings
+            rtg_over[label1] = rating1 + rating_change
+            rtg_under[label2] = rating2 - rating_change
 
-            # record current rating
-            ratings[label1].append((time, rtg_under[label1], rtg_over[label1]))
-            ratings[label2].append((time, rtg_under[label2], rtg_over[label2]))
+            # record current ratings
+            for label in label1, label2:
+                ratings[label].append((
+                    time,
+                    rtg_under[label].copy(),
+                    rtg_over[label].copy(),
+                ))
 
         # recast as a structured array for convenience
         for label in ratings.keys():
@@ -160,4 +165,4 @@ class Melo:
         rating1 = self.query_rating(time, label1)
         rating2 = self.query_rating(time, label2)
 
-        return self.norm_cdf(rating1['over'] - rating2['under'])
+        return self.lines, self.norm_cdf(rating1['over'] - rating2['under'])
