@@ -5,6 +5,7 @@ from collections import defaultdict
 import numpy as np
 from scipy.special import erf, erfinv
 from scipy.optimize import minimize_scalar
+from scipy.ndimage import filters
 
 
 class Melo:
@@ -156,13 +157,19 @@ class Melo:
 
         return ratings, error
 
-    def prior(self, time, label1, label2):
+    def predict(self, time, label1, label2, smooth=0):
         """
-        Prior cumulative probability distribution for a comparison between
-        label1 and label2 at specified 'time'.
+        Predict the probability that a comparison between label1 and label2
+        covers each value of the line.
 
         """
         rating1 = self.query_rating(time, label1)
         rating2 = self.query_rating(time, label2)
 
-        return self.lines, self.norm_cdf(rating1['over'] - rating2['under'])
+        rating_diff = rating1['over'] - rating2['under']
+
+        if smooth > 0:
+            rating_diff = filters.gaussian_filter1d(
+                rating_diff, smooth, mode='nearest')
+
+        return self.lines, self.norm_cdf(rating_diff)

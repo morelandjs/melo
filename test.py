@@ -41,7 +41,7 @@ class PoissonLeague:
 
 def main():
     plt.figure(figsize=(9, 5))
-    league = PoissonLeague(cycles=1e5)
+    league = PoissonLeague(cycles=1e2)
 
     lines = np.linspace(-29.5, 30.5, 61)
 
@@ -51,7 +51,6 @@ def main():
         league.labels2,
         league.values,
         lines=lines,
-        k=0.001
     )
 
     lambda1 = league.lambdas[0]
@@ -76,7 +75,9 @@ def main():
     plt.xlabel('Spread')
     plt.ylabel('Probability')
     plt.ylim(0, 1)
+    plt.savefig('convergence.pdf')
     plt.show()
+
 
 
 if __name__ == "__main__":
