@@ -7,6 +7,8 @@ from scipy.special import erf, erfinv
 from scipy.optimize import minimize_scalar
 from scipy.ndimage import filters
 
+import matplotlib.pyplot as plt
+
 
 class Melo:
     """
@@ -39,10 +41,12 @@ class Melo:
 
 
     """
-    def __init__(self, times, labels1, labels2, values, lines=0, k=None):
+    def __init__(self, times, labels1, labels2, values, lines=0,
+                 regress=lambda x: 1, k=None):
 
         self.values = np.array(values, dtype=float)
         self.lines = np.array(lines, dtype=float)
+        self.regress = regress
 
         outcomes = np.tile(
             self.values[:, np.newaxis], self.lines.size
@@ -64,17 +68,17 @@ class Melo:
 
         self.rtg_hcap = self.rating_handicap(self.comparisons.outcome)
 
-        self.k = (self.auto_fit_k if k is None else k)
+        self.k = (self.optimize_k() if k is None else k)
 
         self.ratings, self.error = self.rate(self.k)
 
-    @property
-    def auto_fit_k(self):
+    def optimize_k(self, kmin=1e-4, kmax=1.0):
         """
-        Tune the k update-factor to minimize predictive error.
+        Optimize the k update-factor to minimize predictive error.
 
         """
-        res = minimize_scalar(lambda x: self.rate(x)[1])
+        res = minimize_scalar(lambda x: self.rate(x)[1], bounds=(kmin, kmax))
+
         return res.x
 
     def rating_handicap(self, outcomes):
@@ -87,7 +91,7 @@ class Melo:
         TINY = 1e-6
         prob = np.clip(prob, TINY, 1 - TINY)
 
-        return np.sqrt(2)/2*erfinv(2*prob - 1)
+        return np.sqrt(2)/2 * erfinv(2*prob - 1)
 
     def norm_cdf(self, x, loc=0, scale=1):
         """
@@ -103,7 +107,10 @@ class Melo:
         """
         ratings = self.ratings[label]
 
-        return ratings[ratings['time'] < time][-1]
+        try:
+            return ratings[ratings['time'] < time][-1]
+        except IndexError:
+            return {'over': self.rtg_hcap, 'under': -self.rtg_hcap}
 
     def rate(self, k):
         """
@@ -112,9 +119,9 @@ class Melo:
         """
         rtg_over = defaultdict(lambda: self.rtg_hcap)
         rtg_under = defaultdict(lambda: -self.rtg_hcap)
+        last_played = defaultdict(lambda: self.comparisons['time'].min())
 
         ratings = defaultdict(list)
-
         error = 0
 
         # loop over all binary comparisons
@@ -123,6 +130,14 @@ class Melo:
             # lookup label ratings
             rating1 = rtg_over[label1]
             rating2 = rtg_under[label2]
+
+            # apply rating decay to rating1
+            x1 = self.regress(time - last_played[label1])
+            rating1 = x1*rating1 + (1 - x1)*self.rtg_hcap
+
+            # apply rating decay to rating2
+            x2 = self.regress(time - last_played[label2])
+            rating2 = x2*rating2 - (1 - x2)*self.rtg_hcap
 
             # prior prediction and observed outcome
             prior = self.norm_cdf(rating1 - rating2)
@@ -143,6 +158,7 @@ class Melo:
                     rtg_under[label].copy(),
                     rtg_over[label].copy(),
                 ))
+                last_played[label] = time
 
         # recast as a structured array for convenience
         for label in ratings.keys():
@@ -173,3 +189,40 @@ class Melo:
                 rating_diff, smooth, mode='nearest')
 
         return self.lines, self.norm_cdf(rating_diff)
+
+    @property
+    def predictors(self):
+        """
+        Generate mean-value predictors for each binary comparison.
+
+        The model predicts the probability that a comparison covers a given
+        line, i.e. F = P(value > line).
+
+        One can use integration by parts to calculate the mean of the CDF,
+
+        E(x) = \int x P(x) dx
+             = x F(x) | - \int F(x) dx
+
+        """
+        predictors = []
+
+        # loop over all binary comparisons
+        for index, (time, label1, label2, outcome) in enumerate(self.comparisons):
+
+            # integration by parts
+            x, F = self.predict(time, label1, label2)
+            mean = np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
+            predictors.append((time, label1, label2, mean))
+
+        # convert to structured array
+        predictors = np.array(
+            predictors,
+            dtype=[
+                ('time',  'M8[us]'),
+                ('label1',    'U8'),
+                ('label2',    'U8'),
+                ('value',     'f8'),
+            ]
+        )
+
+        return predictors
