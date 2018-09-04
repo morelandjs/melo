@@ -7,8 +7,6 @@ from scipy.special import erf, erfinv
 from scipy.optimize import minimize_scalar
 from scipy.ndimage import filters
 
-import matplotlib.pyplot as plt
-
 
 class Melo:
     """
@@ -53,6 +51,7 @@ class Melo:
         ) > self.lines
 
         outcomes = (outcomes if self.lines.size > 1 else outcomes.ravel())
+        self.dim = self.lines.size
 
         self.comparisons = np.sort(
             np.rec.fromarrays(
@@ -61,7 +60,7 @@ class Melo:
                     ('time', 'M8[us]'),
                     ('label1',   'U8'),
                     ('label2',   'U8'),
-                    ('outcome',   '?', self.lines.size),
+                    ('outcome',   '?', self.dim),
                 ]
             ), axis=0
         )
@@ -166,8 +165,8 @@ class Melo:
                 ratings[label],
                 dtype=[
                     ('time',  'M8[us]'),
-                    ('under', 'f8', self.lines.size),
-                    ('over',  'f8', self.lines.size),
+                    ('under', 'f8', self.dim),
+                    ('over',  'f8', self.dim),
                 ]
             )
 
@@ -207,7 +206,7 @@ class Melo:
         predictors = []
 
         # loop over all binary comparisons
-        for index, (time, label1, label2, outcome) in enumerate(self.comparisons):
+        for (time, label1, label2, outcome) in self.comparisons[-100:]:
 
             # integration by parts
             x, F = self.predict(time, label1, label2)
@@ -221,7 +220,7 @@ class Melo:
                 ('time',  'M8[us]'),
                 ('label1',    'U8'),
                 ('label2',    'U8'),
-                ('value',     'f8'),
+                ('mean',      'f8'),
             ]
         )
 

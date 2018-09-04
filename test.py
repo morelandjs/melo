@@ -133,7 +133,7 @@ def validate_one(line=0):
         league.labels2,
         league.values,
         lines=line,
-        k=0.005
+        k=0.002
     )
 
     lambda1 = league.lambdas[0]
@@ -155,9 +155,50 @@ def validate_one(line=0):
 
     # axes labels
     plt.xlabel('Iterations')
-    plt.ylabel('Probability to cover line')
+    plt.ylabel('Probability to cover line={}'.format(line))
     plt.ylim(0, 1)
-    plt.legend()
+    plt.legend(loc='lower left')
+    finish()
+
+
+@plot
+def mean_predictions():
+    """
+    Scatterplot predicted vs known spread means.
+
+    """
+    # construct a fake Poisson league
+    league = PoissonLeague(10**5)
+    lines = np.linspace(-29.5, 30.5, 61)
+    now = datetime.today()
+
+    # calculate ratings
+    melo = Melo(
+        league.times,
+        league.labels1,
+        league.labels2,
+        league.values,
+        lines=lines,
+        k=0.002
+    )
+
+    # mean-value predictions
+    predictors = melo.predictors
+    lambda1 = predictors['label1'].astype(float)
+    lambda2 = predictors['label2'].astype(float)
+
+    # compare predicted and true values
+    pred = predictors['mean']
+    true = lambda1 - lambda2
+
+    # scatter plot predicted vs exact
+    plt.plot(pred, true, 'o')
+    plt.plot([-30, 30], [-30, 30], color='k', ls='dashed')
+
+    # axes labels
+    text = r'$\langle \mathrm{Skellam}(\lambda_i, \lambda_j) \rangle$'
+    plt.xlabel(r'Predicted {}'.format(text))
+    plt.ylabel(r'Analytic {}'.format(text))
     finish()
 
 
