@@ -6,6 +6,7 @@ MELO
 Documentation
 -------------
 
+
 Quick start
 -----------
 Install::
@@ -13,6 +14,7 @@ Install::
    pip install melo
 
 Basic usage:
+
 .. code-block:: python
 
    from melo import Melo
