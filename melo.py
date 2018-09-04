@@ -172,10 +172,10 @@ class Melo:
 
         return ratings, error
 
-    def predict(self, time, label1, label2, smooth=0):
+    def predict_prob(self, time, label1, label2, smooth=0):
         """
-        Predict the probability that a comparison between label1 and label2
-        covers each value of the line.
+        Predict the distribution of values sampled by a comparison between
+        label1 and label2.
 
         """
         rating1 = self.query_rating(time, label1)
@@ -188,6 +188,33 @@ class Melo:
                 rating_diff, smooth, mode='nearest')
 
         return self.lines, self.norm_cdf(rating_diff)
+
+    def predict_mean(self, time, label1, label2, smooth=0):
+        """
+        Predict the mean value for a comparison between label1 and label2.
+        One can use integration by parts to calculate the mean of the CDF,
+
+        E(x) = \int x P(x) dx
+             = x F(x) | - \int F(x) dx
+
+        """
+        x, F = self.predict_prob(time, label1, label2)
+
+        return np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
+
+    def predict_perc(self, time, label1, label2, smooth=0, q=[10, 50, 90]):
+        """
+        Predict the percentiles for a comparison between label1 and label2.
+
+        """
+        q = np.array(q) / 100.
+
+        x, F = self.predict_prob(time, label1, label2, smooth)
+        F = np.sort(F)[::-1]
+
+        indices = [np.argmin((F - p)**2) for p in q]
+
+        return x[indices]
 
     @property
     def predictors(self):
@@ -209,8 +236,7 @@ class Melo:
         for (time, label1, label2, outcome) in self.comparisons[-100:]:
 
             # integration by parts
-            x, F = self.predict(time, label1, label2)
-            mean = np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
+            mean = self.predict_mean(time, label1, label2)
             predictors.append((time, label1, label2, mean))
 
         # convert to structured array

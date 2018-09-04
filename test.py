@@ -101,7 +101,7 @@ def validate_all():
     for lambda2 in league.lambdas[1:]:
 
         # Elo predicted win probability
-        x, y = melo.predict(now, str(lambda1), str(lambda2))
+        x, y = melo.predict_prob(now, str(lambda1), str(lambda2))
         plt.plot(x, y, 'o', label='Skellam({}, {})'.format(lambda1, lambda2))
 
         # true win probability
