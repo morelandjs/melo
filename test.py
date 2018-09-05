@@ -16,6 +16,10 @@ plotdir = Path('figures')
 plotdir.mkdir(exist_ok=True)
 
 def plot(f):
+    """
+    Wrapper function to generate test figures.
+
+    """
     def wrapper(*args, **kwargs):
         print(f.__name__)
         f(*args, **kwargs)
@@ -29,6 +33,10 @@ def plot(f):
 
 def finish(despine=True, remove_ticks=False, pad=0.1, h_pad=None, w_pad=None,
            rect=[0, 0, 1, 1]):
+    """
+    Apply several changes to the default figure format.
+
+    """
     fig = plt.gcf()
 
     for ax in fig.axes:
@@ -76,7 +84,7 @@ class PoissonLeague:
 
 
 @plot
-def validate_all():
+def all_lines():
     """
     Validate predictions at every value of the line.
 
@@ -117,9 +125,9 @@ def validate_all():
 
 
 @plot
-def validate_one(line=0):
+def one_line(line=0):
     """
-    Validate convergence at one value of the line.
+    Test convergence at one value of the line.
 
     """
     # construct a fake Poisson league
@@ -164,7 +172,7 @@ def validate_one(line=0):
 @plot
 def mean_predictions():
     """
-    Scatterplot predicted vs known spread means.
+    Scatterplot predicted vs known value means.
 
     """
     # construct a fake Poisson league

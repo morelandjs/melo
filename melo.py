@@ -65,7 +65,9 @@ class Melo:
             ), axis=0
         )
 
-        self.rtg_hcap = self.rating_handicap(self.comparisons.outcome)
+        self.oldest = self.comparisons['time'].min()
+
+        self.default_rtg = self.default_rating(self.comparisons.outcome)
 
         self.k = (self.optimize_k() if k is None else k)
 
@@ -80,9 +82,18 @@ class Melo:
 
         return res.x
 
-    def rating_handicap(self, outcomes):
+    def default_rating(self, outcomes):
         """
-        Naive prior that label1 beats label2.
+        Assuming all labels are equal, calculate the probability that a
+        comparison between label1 and label2 covers each line, i.e.
+
+        prob = P(value1 - value2 > line).
+
+        This probability is used to calculate a default rating difference,
+
+        default_rtg_diff = sqrt(2)*erfiv(2*prob - 1).
+
+        This function then returns half the default rating difference.
 
         """
         prob = np.count_nonzero(outcomes, axis=0) / np.size(outcomes, axis=0)
@@ -105,20 +116,20 @@ class Melo:
 
         """
         ratings = self.ratings[label]
+        times = ratings['time'] < time
 
-        try:
-            return ratings[ratings['time'] < time][-1]
-        except IndexError:
-            return {'over': self.rtg_hcap, 'under': -self.rtg_hcap}
+        default = {'over': self.default_rtg, 'under': -self.default_rtg}
+
+        return ratings[times][-1] if times.size > 0 else default
 
     def rate(self, k):
         """
         Apply the Elo model to the list of binary comparisons.
 
         """
-        rtg_over = defaultdict(lambda: self.rtg_hcap)
-        rtg_under = defaultdict(lambda: -self.rtg_hcap)
-        last_played = defaultdict(lambda: self.comparisons['time'].min())
+        rtg_over = defaultdict(lambda: self.default_rtg)
+        rtg_under = defaultdict(lambda: -self.default_rtg)
+        last_played = defaultdict(lambda: self.oldest)
 
         ratings = defaultdict(list)
         error = 0
@@ -132,11 +143,11 @@ class Melo:
 
             # apply rating decay to rating1
             x1 = self.regress(time - last_played[label1])
-            rating1 = x1*rating1 + (1 - x1)*self.rtg_hcap
+            rating1 = x1*rating1 + (1 - x1)*self.default_rtg
 
             # apply rating decay to rating2
             x2 = self.regress(time - last_played[label2])
-            rating2 = x2*rating2 - (1 - x2)*self.rtg_hcap
+            rating2 = x2*rating2 - (1 - x2)*self.default_rtg
 
             # prior prediction and observed outcome
             prior = self.norm_cdf(rating1 - rating2)
