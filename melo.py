@@ -122,6 +122,15 @@ class Melo:
 
         return ratings[times][-1] if times.size > 0 else default
 
+    def regress_rating(self, rating, null_rating, elapsed_time):
+        """
+        Regress rating to it's null value as a function of elapsed time.
+
+        """
+        x = self.regress(elapsed_time)
+
+        return x*rating + (1 - x)*null_rating
+
     def rate(self, k):
         """
         Apply the Elo model to the list of binary comparisons.
@@ -129,7 +138,7 @@ class Melo:
         """
         rtg_over = defaultdict(lambda: self.default_rtg)
         rtg_under = defaultdict(lambda: -self.default_rtg)
-        last_played = defaultdict(lambda: self.oldest)
+        last_updated = defaultdict(lambda: self.oldest)
 
         ratings = defaultdict(list)
         error = 0
@@ -138,16 +147,16 @@ class Melo:
         for (time, label1, label2, outcome) in self.comparisons:
 
             # lookup label ratings
-            rating1 = rtg_over[label1]
-            rating2 = rtg_under[label2]
-
-            # apply rating decay to rating1
-            x1 = self.regress(time - last_played[label1])
-            rating1 = x1*rating1 + (1 - x1)*self.default_rtg
-
-            # apply rating decay to rating2
-            x2 = self.regress(time - last_played[label2])
-            rating2 = x2*rating2 - (1 - x2)*self.default_rtg
+            rating1 = self.regress_rating(
+                rtg_over[label1],
+                self.default_rtg,
+                time - last_updated[label1]
+            )
+            rating2 = self.regress_rating(
+                rtg_under[label2],
+                -self.default_rtg,
+                time - last_updated[label2]
+            )
 
             # prior prediction and observed outcome
             prior = self.norm_cdf(rating1 - rating2)
@@ -168,7 +177,7 @@ class Melo:
                     rtg_under[label].copy(),
                     rtg_over[label].copy(),
                 ))
-                last_played[label] = time
+                last_updated[label] = time
 
         # recast as a structured array for convenience
         for label in ratings.keys():

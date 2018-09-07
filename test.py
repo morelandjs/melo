@@ -15,6 +15,7 @@ plot_functions = {}
 plotdir = Path('figures')
 plotdir.mkdir(exist_ok=True)
 
+
 def plot(f):
     """
     Wrapper function to generate test figures.
