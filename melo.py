@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from __future__ import division
+
 from collections import defaultdict
 
 import numpy as np
@@ -7,6 +9,7 @@ from scipy.special import erf, erfinv
 from scipy.optimize import minimize_scalar
 from scipy.ndimage import filters
 
+import matplotlib.pyplot as plt
 
 class Melo:
     """
@@ -55,11 +58,12 @@ class Melo:
 
         self.comparisons = np.sort(
             np.rec.fromarrays(
-                [times, labels1, labels2, outcomes],
+                [times, labels1, labels2, values, outcomes],
                 dtype=[
                     ('time', 'M8[us]'),
                     ('label1',   'U8'),
                     ('label2',   'U8'),
+                    ('value',    'f8'),
                     ('outcome',   '?', self.dim),
                 ]
             ), axis=0
@@ -118,18 +122,22 @@ class Melo:
         ratings = self.ratings[label]
         times = ratings['time'] < time
 
-        default = {'over': self.default_rtg, 'under': -self.default_rtg}
+        default = {
+            'time': self.oldest,
+            'over': self.default_rtg,
+            'under': -self.default_rtg,
+        }
 
-        return ratings[times][-1] if times.size > 0 else default
+        return ratings[times][-1] if times.sum() > 0 else default
 
     def regress_rating(self, rating, null_rating, elapsed_time):
         """
         Regress rating to it's null value as a function of elapsed time.
 
         """
-        x = self.regress(elapsed_time)
+        factor = self.regress(elapsed_time)
 
-        return x*rating + (1 - x)*null_rating
+        return null_rating + factor * (rating - null_rating)
 
     def rate(self, k):
         """
@@ -144,7 +152,7 @@ class Melo:
         error = 0
 
         # loop over all binary comparisons
-        for (time, label1, label2, outcome) in self.comparisons:
+        for (time, label1, label2, value, outcome) in self.comparisons:
 
             # lookup label ratings
             rating1 = self.regress_rating(
@@ -253,11 +261,11 @@ class Melo:
         predictors = []
 
         # loop over all binary comparisons
-        for (time, label1, label2, outcome) in self.comparisons[-100:]:
+        for (time, label1, label2, value, outcome) in self.comparisons:
 
             # integration by parts
             mean = self.predict_mean(time, label1, label2)
-            predictors.append((time, label1, label2, mean))
+            predictors.append((time, label1, label2, mean, value))
 
         # convert to structured array
         predictors = np.array(
@@ -267,6 +275,7 @@ class Melo:
                 ('label1',    'U8'),
                 ('label2',    'U8'),
                 ('mean',      'f8'),
+                ('value',     'f8'),
             ]
         )
 
