@@ -6,10 +6,8 @@ from collections import defaultdict
 
 import numpy as np
 from scipy.special import erf, erfinv
-from scipy.optimize import minimize_scalar
 from scipy.ndimage import filters
 
-import matplotlib.pyplot as plt
 
 class Melo:
     """
@@ -43,11 +41,16 @@ class Melo:
 
     """
     def __init__(self, times, labels1, labels2, values, lines=0,
-                 regress=lambda x: 1, k=None):
+                 k=0, bias=0, decay=lambda: 1, commutes=False):
 
         self.values = np.array(values, dtype=float)
-        self.lines = np.array(lines, dtype=float)
-        self.regress = regress
+        self.lines = np.array(lines, dtype=float, ndmin=1)
+        self.lines = np.unique(np.append(-self.lines, self.lines))
+        self.lines.sort()
+
+        self.k = k
+        self.bias = bias
+        self.decay = decay
 
         outcomes = np.tile(
             self.values[:, np.newaxis], self.lines.size
@@ -71,22 +74,11 @@ class Melo:
 
         self.oldest = self.comparisons['time'].min()
 
-        self.default_rtg = self.default_rating(self.comparisons.outcome)
+        self.null_rtg = self.null_rating(self.comparisons.outcome)
 
-        self.k = (self.optimize_k() if k is None else k)
+        self.ratings = self.rate(self.k)
 
-        self.ratings, self.error = self.rate(self.k)
-
-    def optimize_k(self, kmin=1e-4, kmax=1.0):
-        """
-        Optimize the k update-factor to minimize predictive error.
-
-        """
-        res = minimize_scalar(lambda x: self.rate(x)[1], bounds=(kmin, kmax))
-
-        return res.x
-
-    def default_rating(self, outcomes):
+    def null_rating(self, outcomes):
         """
         Assuming all labels are equal, calculate the probability that a
         comparison between label1 and label2 covers each line, i.e.
@@ -100,12 +92,14 @@ class Melo:
         This function then returns half the default rating difference.
 
         """
-        prob = np.count_nonzero(outcomes, axis=0) / np.size(outcomes, axis=0)
+        prob = np.sum(outcomes, axis=0) / np.size(outcomes, axis=0)
 
         TINY = 1e-6
         prob = np.clip(prob, TINY, 1 - TINY)
 
-        return np.sqrt(2)/2 * erfinv(2*prob - 1)
+        rtg_diff = np.sqrt(2)*erfinv(2*prob - 1) - self.bias
+
+        return .5*rtg_diff
 
     def norm_cdf(self, x, loc=0, scale=1):
         """
@@ -122,70 +116,53 @@ class Melo:
         ratings = self.ratings[label]
         times = ratings['time'] < time
 
-        default = {
-            'time': self.oldest,
-            'over': self.default_rtg,
-            'under': -self.default_rtg,
-        }
+        if times.sum() > 0:
+            return ratings[times][-1]['rating']
+        else:
+            return self.null_rtg
 
-        return ratings[times][-1] if times.sum() > 0 else default
-
-    def regress_rating(self, rating, null_rating, elapsed_time):
+    def regress(self, rating, elapsed_time):
         """
         Regress rating to it's null value as a function of elapsed time.
 
         """
-        factor = self.regress(elapsed_time)
+        factor = self.decay(elapsed_time)
 
-        return null_rating + factor * (rating - null_rating)
+        return self.null_rtg + factor * (rating - self.null_rtg)
 
     def rate(self, k):
         """
         Apply the Elo model to the list of binary comparisons.
 
         """
-        rtg_over = defaultdict(lambda: self.default_rtg)
-        rtg_under = defaultdict(lambda: -self.default_rtg)
-        last_updated = defaultdict(lambda: self.oldest)
+        R = defaultdict(lambda: self.null_rtg)
+        last_update = defaultdict(lambda: self.oldest)
 
         ratings = defaultdict(list)
-        error = 0
 
         # loop over all binary comparisons
         for (time, label1, label2, value, outcome) in self.comparisons:
 
-            # lookup label ratings
-            rating1 = self.regress_rating(
-                rtg_over[label1],
-                self.default_rtg,
-                time - last_updated[label1]
-            )
-            rating2 = self.regress_rating(
-                rtg_under[label2],
-                -self.default_rtg,
-                time - last_updated[label2]
-            )
+            # look up ratings
+            rating1 = self.regress(R[label1].copy(), time - last_update[label1])
+            rating2 = self.regress(R[label2].copy(), time - last_update[label2])
 
             # prior prediction and observed outcome
-            prior = self.norm_cdf(rating1 - rating2)
+            rating_diff = rating1 - np.flip(rating2) + self.bias
+            prior = self.norm_cdf(rating_diff)
             observed = np.where(outcome, 1, 0)
 
             # rating change
             rating_change = k * (observed - prior)
-            error += np.square(observed - prior).sum()
 
             # update current ratings
-            rtg_over[label1] = rating1 + rating_change
-            rtg_under[label2] = rating2 - rating_change
+            R[label1] = rating1 + rating_change
+            R[label2] = rating2 - np.flip(rating_change)
 
             # record current ratings
             for label in label1, label2:
-                ratings[label].append((
-                    time,
-                    rtg_under[label].copy(),
-                    rtg_over[label].copy(),
-                ))
-                last_updated[label] = time
+                ratings[label].append((time, R[label].copy()))
+                last_update[label] = time
 
         # recast as a structured array for convenience
         for label in ratings.keys():
@@ -193,12 +170,11 @@ class Melo:
                 ratings[label],
                 dtype=[
                     ('time',  'M8[us]'),
-                    ('under', 'f8', self.dim),
-                    ('over',  'f8', self.dim),
+                    ('rating', 'f8', self.dim),
                 ]
             )
 
-        return ratings, error
+        return ratings
 
     def predict_prob(self, time, label1, label2, smooth=0):
         """
@@ -209,7 +185,7 @@ class Melo:
         rating1 = self.query_rating(time, label1)
         rating2 = self.query_rating(time, label2)
 
-        rating_diff = rating1['over'] - rating2['under']
+        rating_diff = rating1 - np.flip(rating2) + self.bias
 
         if smooth > 0:
             rating_diff = filters.gaussian_filter1d(
@@ -230,22 +206,20 @@ class Melo:
 
         return np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
 
-    def predict_perc(self, time, label1, label2, smooth=0, q=[10, 50, 90]):
+    def predict_perc(self, time, label1, label2, smooth=0, q=50):
         """
         Predict the percentiles for a comparison between label1 and label2.
 
         """
-        q = np.array(q) / 100.
-
         x, F = self.predict_prob(time, label1, label2, smooth)
         F = np.sort(F)[::-1]
 
-        indices = [np.argmin((F - p)**2) for p in q]
+        q = np.array(q, ndmin=1) / 100
+        indices = np.argmin((F[:, np.newaxis] - q)**2, axis=0)
 
         return x[indices]
 
-    @property
-    def predictors(self):
+    def predictors(self, smooth=0, thin=1):
         """
         Generate mean-value predictors for each binary comparison.
 
@@ -261,11 +235,14 @@ class Melo:
         predictors = []
 
         # loop over all binary comparisons
-        for (time, label1, label2, value, outcome) in self.comparisons:
+        for (time, label1, label2, value, outcome) in self.comparisons[::thin]:
 
             # integration by parts
-            mean = self.predict_mean(time, label1, label2)
-            predictors.append((time, label1, label2, mean, value))
+            mean = self.predict_mean(time, label1, label2, smooth=smooth)
+            quantiles = self.predict_perc(time, label1, label2, smooth=smooth,
+                                          q=[10, 30, 50, 70, 90])
+
+            predictors.append((time, label1, label2, mean, value, quantiles))
 
         # convert to structured array
         predictors = np.array(
@@ -276,6 +253,7 @@ class Melo:
                 ('label2',    'U8'),
                 ('mean',      'f8'),
                 ('value',     'f8'),
+                ('quantiles', 'f8', 5),
             ]
         )
 

@@ -92,7 +92,7 @@ def all_lines():
     """
     # construct a fake Poisson league
     league = PoissonLeague(10**5)
-    lines = np.linspace(-29.5, 30.5, 61)
+    lines = np.arange(-29.5, 30.5, 1)
     now = datetime.today()
 
     # calculate ratings
@@ -126,7 +126,7 @@ def all_lines():
 
 
 @plot
-def one_line(line=0):
+def one_line(line=3.5):
     """
     Test convergence at one value of the line.
 
@@ -145,17 +145,20 @@ def one_line(line=0):
         k=0.002
     )
 
+    ratings = melo.ratings
+
     lambda1 = league.lambdas[0]
-    ratings1 = melo.ratings[str(lambda1)]
-    iterations = np.arange(ratings1.size)
+    ratings1 = ratings[str(lambda1)]['rating']
 
     for lambda2 in league.lambdas[1:]:
-        ratings2 = melo.ratings[str(lambda2)]
 
         # predicted cover probability
-        ratings_diff = ratings1['over'] - ratings2['under']
-        prob = melo.norm_cdf(ratings_diff)
+        ratings2 = ratings[str(lambda2)]['rating']
+        ratings_diff = ratings1 - np.fliplr(ratings2)
+        prob = melo.norm_cdf(ratings_diff[:, -1])
         label = 'Skellam({}, {})'.format(lambda1, lambda2)
+
+        iterations = np.arange(len(ratings1))
         plt.plot(iterations, prob, label=label)
 
         # true cover probability
@@ -192,7 +195,7 @@ def mean_predictions():
     )
 
     # mean-value predictions
-    predictors = melo.predictors
+    predictors = melo.predictors(thin=100)[-100:]
     lambda1 = predictors['label1'].astype(float)
     lambda2 = predictors['label2'].astype(float)
 
