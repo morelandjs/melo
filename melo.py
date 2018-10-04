@@ -41,23 +41,32 @@ class Melo:
 
     """
     def __init__(self, times, labels1, labels2, values, lines=0,
-                 k=0, bias=0, decay=lambda: 1, commutes=False):
+                 k=0, bias=0, decay=lambda x: 1, commutes=False):
 
         self.values = np.array(values, dtype=float)
         self.lines = np.array(lines, dtype=float, ndmin=1)
-        self.lines = np.unique(np.append(-self.lines, self.lines))
-        self.lines.sort()
 
         self.k = k
         self.bias = bias
         self.decay = decay
+        self.commutes = commutes
 
-        outcomes = np.tile(
-            self.values[:, np.newaxis], self.lines.size
-        ) > self.lines
+        self.mirror_lines = np.unique(
+            np.append(-self.lines, self.lines))
+        self.mirror_lines.sort()
 
-        outcomes = (outcomes if self.lines.size > 1 else outcomes.ravel())
-        self.dim = self.lines.size
+        value_matrix = np.tile(
+            self.values[:, np.newaxis],
+            self.mirror_lines.size
+        )
+
+        if self.commutes:
+            neg_lines = self.mirror_lines < 0
+            value_matrix[:, neg_lines] *= -1
+
+        self.dim = self.mirror_lines.size
+        outcomes = value_matrix > self.mirror_lines
+        outcomes = (outcomes if self.dim > 1 else outcomes.ravel())
 
         self.comparisons = np.sort(
             np.rec.fromarrays(
@@ -185,13 +194,17 @@ class Melo:
         rating1 = self.query_rating(time, label1)
         rating2 = self.query_rating(time, label2)
 
-        rating_diff = rating1 - np.flip(rating2) + self.bias
+        real = (self.mirror_lines >= self.values.min()) \
+            & (self.mirror_lines <= self.values.max())
+
+        lines = self.mirror_lines[real]
+        rating_diff = (rating1 - np.flip(rating2) + self.bias)[real]
 
         if smooth > 0:
             rating_diff = filters.gaussian_filter1d(
                 rating_diff, smooth, mode='nearest')
 
-        return self.lines, self.norm_cdf(rating_diff)
+        return lines, self.norm_cdf(rating_diff)
 
     def predict_mean(self, time, label1, label2, smooth=0):
         """
@@ -202,11 +215,11 @@ class Melo:
              = x F(x) | - \int F(x) dx
 
         """
-        x, F = self.predict_prob(time, label1, label2)
+        x, F = self.predict_prob(time, label1, label2, smooth)
 
         return np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
 
-    def predict_perc(self, time, label1, label2, smooth=0, q=50):
+    def predict_perc(self, time, label1, label2, smooth=0, q=[25, 50, 75]):
         """
         Predict the percentiles for a comparison between label1 and label2.
 
@@ -217,7 +230,7 @@ class Melo:
         q = np.array(q, ndmin=1) / 100
         indices = np.argmin((F[:, np.newaxis] - q)**2, axis=0)
 
-        return x[indices]
+        return np.sort(x[indices])
 
     def predictors(self, smooth=0, thin=1):
         """
@@ -239,10 +252,7 @@ class Melo:
 
             # integration by parts
             mean = self.predict_mean(time, label1, label2, smooth=smooth)
-            quantiles = self.predict_perc(time, label1, label2, smooth=smooth,
-                                          q=[10, 30, 50, 70, 90])
-
-            predictors.append((time, label1, label2, mean, value, quantiles))
+            predictors.append((time, label1, label2, mean, value))
 
         # convert to structured array
         predictors = np.array(
@@ -253,7 +263,6 @@ class Melo:
                 ('label2',    'U8'),
                 ('mean',      'f8'),
                 ('value',     'f8'),
-                ('quantiles', 'f8', 5),
             ]
         )
 
