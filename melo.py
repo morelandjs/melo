@@ -46,26 +46,18 @@ class Melo:
         self.values = np.array(values, dtype=float)
         self.lines = np.array(lines, dtype=float, ndmin=1)
 
+        if not commutes and all(self.lines !=  -np.flip(self.lines)):
+            raise ValueError(
+                'lines must be symmetric about zero when commutes=True.'
+            )
+
         self.k = k
         self.bias = bias
         self.decay = decay
         self.commutes = commutes
 
-        self.mirror_lines = np.unique(
-            np.append(-self.lines, self.lines))
-        self.mirror_lines.sort()
-
-        value_matrix = np.tile(
-            self.values[:, np.newaxis],
-            self.mirror_lines.size
-        )
-
-        if self.commutes:
-            neg_lines = self.mirror_lines < 0
-            value_matrix[:, neg_lines] *= -1
-
-        self.dim = self.mirror_lines.size
-        outcomes = value_matrix > self.mirror_lines
+        self.dim = self.lines.size
+        outcomes = self.values[:, np.newaxis] > self.lines
         outcomes = (outcomes if self.dim > 1 else outcomes.ravel())
 
         self.comparisons = np.sort(
@@ -149,6 +141,9 @@ class Melo:
 
         ratings = defaultdict(list)
 
+        def reflect(vector):
+            return -np.flip(vector)
+
         # loop over all binary comparisons
         for (time, label1, label2, value, outcome) in self.comparisons:
 
@@ -157,7 +152,7 @@ class Melo:
             rating2 = self.regress(R[label2].copy(), time - last_update[label2])
 
             # prior prediction and observed outcome
-            rating_diff = rating1 - np.flip(rating2) + self.bias
+            rating_diff = rating1 + (rating2 if self.commutes else reflect(rating2)) + self.bias
             prior = self.norm_cdf(rating_diff)
             observed = np.where(outcome, 1, 0)
 
@@ -166,7 +161,7 @@ class Melo:
 
             # update current ratings
             R[label1] = rating1 + rating_change
-            R[label2] = rating2 - np.flip(rating_change)
+            R[label2] = rating2 + (rating_change if self.commutes else reflect(rating_change))
 
             # record current ratings
             for label in label1, label2:
@@ -194,17 +189,16 @@ class Melo:
         rating1 = self.query_rating(time, label1)
         rating2 = self.query_rating(time, label2)
 
-        real = (self.mirror_lines >= self.values.min()) \
-            & (self.mirror_lines <= self.values.max())
+        def reflect(vector):
+            return -np.flip(vector)
 
-        lines = self.mirror_lines[real]
-        rating_diff = (rating1 - np.flip(rating2) + self.bias)[real]
+        rating_diff = rating1 + (rating2 if self.commutes else reflect(rating2)) + self.bias
 
         if smooth > 0:
             rating_diff = filters.gaussian_filter1d(
                 rating_diff, smooth, mode='nearest')
 
-        return lines, self.norm_cdf(rating_diff)
+        return self.lines, self.norm_cdf(rating_diff)
 
     def predict_mean(self, time, label1, label2, smooth=0):
         """
