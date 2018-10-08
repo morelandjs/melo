@@ -141,7 +141,7 @@ def one_line(line=3.5):
         league.labels1,
         league.labels2,
         league.values,
-        lines=line,
+        lines=np.union1d(line, -line),
         k=0.002
     )
 
@@ -155,7 +155,7 @@ def one_line(line=3.5):
         # predicted cover probability
         ratings2 = ratings[str(lambda2)]['rating']
         ratings_diff = ratings1 - np.fliplr(ratings2)
-        prob = melo.norm_cdf(ratings_diff[:, -1])
+        prob = melo.prob_to_cover(ratings_diff[:, -1])
         label = 'Skellam({}, {})'.format(lambda1, lambda2)
 
         iterations = np.arange(len(ratings1))
@@ -181,7 +181,7 @@ def mean_predictions():
     """
     # construct a fake Poisson league
     league = PoissonLeague(10**5)
-    lines = np.linspace(-29.5, 30.5, 61)
+    lines = np.arange(-29.5, 30.5, 1)
     now = datetime.today()
 
     # calculate ratings

@@ -11,13 +11,15 @@ from scipy.ndimage import filters
 
 class Melo:
     """
-    Melo(times, labels1, labels2, values, lines=0, k=None)
+    Melo(times, labels1, labels2, values, lines=0,
+         statistics='Fermi', k=0, bias=0, decay=lambda x: 1
+    )
 
     Margin-dependent Elo ratings and predictions.
 
-    This class calculates Elo ratings from binary comparisons determined by a
+    This class calculates Elo ratings from pairwise comparisons determined by a
     list of values (outcomes of each comparison) and a specified line (or
-    sequence of lines) which determines the threshold of comparison.
+    sequence of lines) used to determine the threshold of comparison.
 
     **Required parameters**
 
@@ -36,8 +38,13 @@ class Melo:
 
     - *lines* -- comparison threshold line(s)
 
+    - *statistics* -- behavior of comparisons under label exchange
+
     - *k* -- rating update factor
 
+    - *bias* -- bias (shift) ratings toward either label
+
+    - *decay* -- function used to regress ratings toward the mean
 
     """
     def __init__(self, times, labels1, labels2, values, lines=0,
@@ -50,7 +57,7 @@ class Melo:
         self.lines = np.array(lines, dtype=float, ndmin=1)
 
         if statistics == 'Fermi':
-            if all(self.lines !=  -np.flip(self.lines)):
+            if all(self.lines != -np.flip(self.lines)):
                 raise ValueError(
                     'lines must be symmetric about zero when statistics=Fermi'
                 )
@@ -112,18 +119,21 @@ class Melo:
 
         return .5*rtg_diff
 
-    def norm_cdf(self, x, loc=0, scale=1):
+    def prob_to_cover(self, rating_diff):
         """
         Normal cumulative probability distribution.
 
         """
-        return 0.5*(1 + erf((x - loc)/(np.sqrt(2)*scale)))
+        return 0.5*(1 + erf(rating_diff/np.sqrt(2)))
 
     def query_rating(self, time, label):
         """
         Find the last rating preceeding the specified 'time'.
 
         """
+        if label not in self.ratings:
+            return self.null_rtg
+
         ratings = self.ratings[label]
         times = ratings['time'] < time
 
@@ -156,7 +166,7 @@ class Melo:
 
             # prior prediction and observed outcome
             rating_diff = rating1 + self.conjugate(rating2) + self.bias
-            prior = self.norm_cdf(rating_diff)
+            prior = self.prob_to_cover(rating_diff)
             observed = np.where(outcome, 1, 0)
 
             # rating change
@@ -198,7 +208,7 @@ class Melo:
             rating_diff = filters.gaussian_filter1d(
                 rating_diff, smooth, mode='nearest')
 
-        return self.lines, self.norm_cdf(rating_diff)
+        return self.lines, self.prob_to_cover(rating_diff)
 
     def predict_mean(self, time, label1, label2, smooth=0):
         """
@@ -213,18 +223,17 @@ class Melo:
 
         return np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
 
-    def predict_perc(self, time, label1, label2, smooth=0, q=50):
+    def predict_perc(self, time, label1, label2, q=50, smooth=0):
         """
         Predict the percentiles for a comparison between label1 and label2.
 
         """
         x, F = self.predict_prob(time, label1, label2, smooth)
-        F = np.sort(F)[::-1]
 
-        q = np.array(q, ndmin=1) / 100
-        indices = np.argmin((F[:, np.newaxis] - q)**2, axis=0)
+        qvec = np.array(q, ndmin=1) / 100
+        indices = np.argmin((np.sort(1 - F)[:, np.newaxis] - qvec)**2, axis=0)
 
-        return np.sort(x[indices])
+        return x[indices][0] if np.isscalar(q) else x[indices]
 
     def predictors(self, smooth=0, thin=1):
         """
@@ -261,3 +270,24 @@ class Melo:
         )
 
         return predictors
+
+    def rank(self, time, moment='mean'):
+        """
+        Rank labels according to expected mean/median expected for a
+        comparison with an average label.
+
+        """
+        if moment == 'mean':
+            ranked_list = [
+                (label, self.predict_mean(time, label, 'avg'))
+                for label in np.union1d(self.labels1, self.labels2)
+            ]
+        elif moment == 'median':
+            ranked_list = [
+                (label, self.predict_perc(time, label, 'avg', q=50))
+                for label in np.union1d(self.labels1, self.labels2)
+            ]
+        else:
+            raise ValueError('no such distribution moment')
+
+        return sorted(ranked_list, key=lambda v: v[1], reverse=True)
