@@ -41,20 +41,30 @@ class Melo:
 
     """
     def __init__(self, times, labels1, labels2, values, lines=0,
-                 k=0, bias=0, decay=lambda x: 1, commutes=False):
+                 statistics='Fermi', k=0, bias=0, decay=lambda x: 1):
 
+        self.times = np.array(times, dtype=str)
+        self.labels1 = np.array(labels1, dtype=str)
+        self.labels2 = np.array(labels2, dtype=str)
         self.values = np.array(values, dtype=float)
         self.lines = np.array(lines, dtype=float, ndmin=1)
 
-        if not commutes and all(self.lines !=  -np.flip(self.lines)):
+        if statistics == 'Fermi':
+            if all(self.lines !=  -np.flip(self.lines)):
+                raise ValueError(
+                    'lines must be symmetric about zero when statistics=Fermi'
+                )
+            self.conjugate = lambda x: -np.flip(x)
+        elif statistics == 'Bose':
+            self.conjugate = lambda x: x
+        else:
             raise ValueError(
-                'lines must be symmetric about zero when commutes=True.'
+                'valid statistics options are Fermi or Bose'
             )
 
         self.k = k
         self.bias = bias
         self.decay = decay
-        self.commutes = commutes
 
         self.dim = self.lines.size
         outcomes = self.values[:, np.newaxis] > self.lines
@@ -122,15 +132,6 @@ class Melo:
         else:
             return self.null_rtg
 
-    def regress(self, rating, elapsed_time):
-        """
-        Regress rating to it's null value as a function of elapsed time.
-
-        """
-        factor = self.decay(elapsed_time)
-
-        return self.null_rtg + factor * (rating - self.null_rtg)
-
     def rate(self, k):
         """
         Apply the Elo model to the list of binary comparisons.
@@ -141,18 +142,20 @@ class Melo:
 
         ratings = defaultdict(list)
 
-        def reflect(vector):
-            return -np.flip(vector)
-
         # loop over all binary comparisons
         for (time, label1, label2, value, outcome) in self.comparisons:
 
             # look up ratings
-            rating1 = self.regress(R[label1].copy(), time - last_update[label1])
-            rating2 = self.regress(R[label2].copy(), time - last_update[label2])
+            rating1, rating2 = [
+                self.null_rtg + self.decay(elapsed) * (rating - self.null_rtg)
+                for elapsed, rating in [
+                        (time - last_update[label], R[label].copy())
+                        for label in [label1, label2]
+                ]
+            ]
 
             # prior prediction and observed outcome
-            rating_diff = rating1 + (rating2 if self.commutes else reflect(rating2)) + self.bias
+            rating_diff = rating1 + self.conjugate(rating2) + self.bias
             prior = self.norm_cdf(rating_diff)
             observed = np.where(outcome, 1, 0)
 
@@ -161,7 +164,7 @@ class Melo:
 
             # update current ratings
             R[label1] = rating1 + rating_change
-            R[label2] = rating2 + (rating_change if self.commutes else reflect(rating_change))
+            R[label2] = rating2 + self.conjugate(rating_change)
 
             # record current ratings
             for label in label1, label2:
@@ -189,10 +192,7 @@ class Melo:
         rating1 = self.query_rating(time, label1)
         rating2 = self.query_rating(time, label2)
 
-        def reflect(vector):
-            return -np.flip(vector)
-
-        rating_diff = rating1 + (rating2 if self.commutes else reflect(rating2)) + self.bias
+        rating_diff = rating1 + self.conjugate(rating2) + self.bias
 
         if smooth > 0:
             rating_diff = filters.gaussian_filter1d(
@@ -213,7 +213,7 @@ class Melo:
 
         return np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
 
-    def predict_perc(self, time, label1, label2, smooth=0, q=[25, 50, 75]):
+    def predict_perc(self, time, label1, label2, smooth=0, q=50):
         """
         Predict the percentiles for a comparison between label1 and label2.
 
