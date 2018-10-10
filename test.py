@@ -164,7 +164,7 @@ class PoissonLeague:
 @plot
 def all_lines():
     """
-    Validate predictions at every value of the line.
+    Test rating predictions at every value of the line.
 
     """
     fig, axes = plt.subplots(ncols=2, figsize=figsize(aspect=.309), sharey=True)
@@ -174,8 +174,8 @@ def all_lines():
     today = datetime.today()
 
     melo_args = [
-        ('Fermi', np.arange(-29.5, 30.5, 1), league.diff, 'scored $-$ allowed'),
-        ('Bose', np.arange(10.5, 81.5, 1), league.total, 'scored $+$ allowed'),
+        ('Fermi', np.arange(-29.5, 30.5), league.diff, 'scored $-$ allowed'),
+        ('Bose', np.arange(10.5, 81.5), league.total, 'scored $+$ allowed'),
     ]
 
     for ax, (statistics, lines, values, xlabel) in zip(axes, melo_args):
@@ -217,7 +217,7 @@ def all_lines():
 @plot
 def one_line():
     """
-    Test convergence at one value of the line.
+    Test rating convergence at one value of the line.
 
     """
     fig, axes = plt.subplots(ncols=2, figsize=figsize(aspect=.309), sharey=True)
@@ -273,6 +273,47 @@ def one_line():
             ax.set_title('Total: line = {}'.format(line),
                          fontsize=fontsize['small'])
 
+    set_tight()
+
+
+@plot
+def prior_rating():
+    """
+    Test that the unconditioned prior rating accurately reflects
+    the population.
+
+    """
+    plt.figure(figsize=figsize(.6))
+
+    # construct a fake Poisson league
+    league = PoissonLeague(10**5)
+    today = datetime.today()
+
+    melo_args = [
+        ('Fermi', np.arange(-29.5, 30.5), league.diff, 'scored $-$ allowed'),
+        ('Bose', np.arange(10.5, 81.5), league.total, 'scored $+$ allowed'),
+    ]
+
+    for (statistics, lines, values, label) in melo_args:
+
+        melo = Melo(
+            league.times, league.labels1, league.labels2, values,
+            lines=lines, statistics=statistics, k=1e-3
+        )
+
+        # true prior
+        outcomes = melo.values[:, np.newaxis] > melo.lines
+        outcomes = (outcomes if melo.dim > 1 else outcomes.ravel())
+        prob_to_cover = np.sum(outcomes, axis=0) / np.size(outcomes, axis=0)
+        plt.plot(lines, prob_to_cover, color='k', zorder=0)
+
+        # constructed prior
+        prob_to_cover = melo.prob_to_cover(2*melo.null_rtg)
+        plt.plot(lines, prob_to_cover, 'o', label=label)
+
+    plt.xlabel('Lines')
+    plt.ylabel('Probability to cover line')
+    plt.legend()
     set_tight()
 
 
