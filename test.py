@@ -1,58 +1,133 @@
 #!/usr/bin/env python3
 
-import argparse
+from collections import OrderedDict
 from datetime import datetime, timedelta
+import logging
+import os
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import skellam
+from scipy.stats import poisson, skellam
 
 from melo import Melo
 
+# font sizes
+fontsize = dict(
+    large=11,
+    normal=10,
+    small=9,
+    tiny=8,
+)
 
-plot_functions = {}
+# new tableau colors
+# https://www.tableau.com/about/blog/2016/7/colors-upgrade-tableau-10-56782
+colors = OrderedDict([
+    ('blue', '#4e79a7'),
+    ('orange', '#f28e2b'),
+    ('green', '#59a14f'),
+    ('red', '#e15759'),
+    ('cyan', '#76b7b2'),
+    ('purple', '#b07aa1'),
+    ('brown', '#9c755f'),
+    ('yellow', '#edc948'),
+    ('pink', '#ff9da7'),
+    ('gray', '#bab0ac')
+])
+
+plt.rcdefaults()
+plt.rcParams.update({
+    'font.family': 'serif',
+    'font.serif': ['CMU Serif'],
+    'mathtext.fontset': 'cm',
+    'mathtext.default': 'it',
+    'mathtext.rm': 'sans',
+    'mathtext.cal': 'sans',
+    'font.size': fontsize['normal'],
+    'legend.fontsize': fontsize['normal'],
+    'axes.labelsize': fontsize['normal'],
+    'axes.titlesize': fontsize['large'],
+    'xtick.labelsize': fontsize['small'],
+    'ytick.labelsize': fontsize['small'],
+    'font.weight': 400,
+    'axes.labelweight': 400,
+    'axes.titleweight': 400,
+    'axes.prop_cycle': plt.cycler('color', list(colors.values())),
+    'lines.linewidth': .8,
+    'lines.markersize': 3,
+    'lines.markeredgewidth': 0,
+    'patch.linewidth': .8,
+    'axes.linewidth': .6,
+    'xtick.major.width': .6,
+    'ytick.major.width': .6,
+    'xtick.minor.width': .4,
+    'ytick.minor.width': .4,
+    'xtick.major.size': 3.,
+    'ytick.major.size': 3.,
+    'xtick.minor.size': 2.,
+    'ytick.minor.size': 2.,
+    'xtick.major.pad': 3.5,
+    'ytick.major.pad': 3.5,
+    'axes.labelpad': 4.,
+    'axes.formatter.limits': (-5, 5),
+    'axes.spines.top': False,
+    'axes.spines.right': False,
+    'text.color': 'black',
+    'axes.edgecolor': 'black',
+    'axes.labelcolor': 'black',
+    'xtick.color': 'black',
+    'ytick.color': 'black',
+    'legend.frameon': False,
+    'image.cmap': 'Blues',
+    'image.interpolation': 'none',
+})
+
 plotdir = Path('figures')
 plotdir.mkdir(exist_ok=True)
+
+plot_functions = {}
 
 
 def plot(f):
     """
-    Wrapper function to generate test figures.
-
+    Plot function decorator.  Calls the function, does several generic tasks,
+    and saves the figure as the function name.
     """
     def wrapper(*args, **kwargs):
-        print(f.__name__)
+        logging.info('generating plot: %s', f.__name__)
         f(*args, **kwargs)
-        plt.savefig('{}/{}.pdf'.format(plotdir, f.__name__))
-        plt.close()
+
+        fig = plt.gcf()
+
+        plotfile = plotdir / '{}.pdf'.format(f.__name__)
+        fig.savefig(str(plotfile))
+        logging.info('wrote %s', plotfile)
+        plt.close(fig)
 
     plot_functions[f.__name__] = wrapper
 
     return wrapper
 
 
-def finish(despine=True, remove_ticks=False, pad=0.1, h_pad=None, w_pad=None,
-           rect=[0, 0, 1, 1]):
+def figsize(relwidth=1, aspect=.618, refwidth=8):
     """
-    Apply several changes to the default figure format.
-
+    Return figure dimensions from a relative width (to a reference width) and
+    aspect ratio (default: 1/golden ratio).
     """
-    fig = plt.gcf()
+    width = relwidth * refwidth
 
-    for ax in fig.axes:
-        if despine:
-            for spine in 'top', 'right':
-                ax.spines[spine].set_visible(False)
+    return width, width*aspect
 
-        if remove_ticks:
-            for ax_name in 'xaxis', 'yaxis':
-                getattr(ax, ax_name).set_ticks_position('none')
-        else:
-            ax.xaxis.set_ticks_position('bottom')
-            ax.yaxis.set_ticks_position('left')
 
-    fig.tight_layout(pad=pad, h_pad=h_pad, w_pad=w_pad, rect=rect)
+def set_tight(fig=None, **kwargs):
+    """
+    Set tight_layout with a better default pad.
+    """
+    if fig is None:
+        fig = plt.gcf()
+
+    kwargs.setdefault('pad', .1)
+    fig.set_tight_layout(kwargs)
 
 
 class PoissonLeague:
@@ -67,7 +142,8 @@ class PoissonLeague:
         self.times = []
         self.labels1 = []
         self.labels2 = []
-        self.values = []
+        self.diff = []
+        self.total = []
 
         for cycle in range(int(cycles)):
             for lambda1, lambda2 in np.random.choice(
@@ -81,7 +157,8 @@ class PoissonLeague:
                 self.times.append(self.today - timedelta(hours=cycle))
                 self.labels1.append(lambda1)
                 self.labels2.append(lambda2)
-                self.values.append(score1 - score2)
+                self.diff.append(score1 - score2)
+                self.total.append(score1 + score2)
 
 
 @plot
@@ -90,131 +167,123 @@ def all_lines():
     Validate predictions at every value of the line.
 
     """
+    fig, axes = plt.subplots(ncols=2, figsize=figsize(aspect=.309), sharey=True)
+
     # construct a fake Poisson league
     league = PoissonLeague(10**5)
-    lines = np.arange(-29.5, 30.5, 1)
-    now = datetime.today()
+    today = datetime.today()
 
-    # calculate ratings
-    melo = Melo(
-        league.times,
-        league.labels1,
-        league.labels2,
-        league.values,
-        lines=lines,
-        k=0.002
-    )
+    melo_args = [
+        ('Fermi', np.arange(-29.5, 30.5, 1), league.diff, 'scored $-$ allowed'),
+        ('Bose', np.arange(10.5, 81.5, 1), league.total, 'scored $+$ allowed'),
+    ]
 
-    lambda1 = league.lambdas[0]
+    for ax, (statistics, lines, values, xlabel) in zip(axes, melo_args):
 
-    for lambda2 in league.lambdas[1:]:
+        melo = Melo(
+            league.times, league.labels1, league.labels2, values,
+            lines=lines, statistics=statistics, k=1e-3
+        )
 
-        # Elo predicted win probability
-        x, y = melo.predict_prob(now, str(lambda1), str(lambda2))
-        plt.plot(x, y, 'o', label='Skellam({}, {})'.format(lambda1, lambda2))
+        lambda1 = league.lambdas[0]
 
-        # true win probability
-        x = np.linspace(-29.5, 30.5, 601)
-        y = 1 - skellam.cdf(x, lambda1, lambda2)
-        plt.plot(x, y, color='k')
+        for lambda2 in league.lambdas[1:]:
 
-    # axes labels
-    plt.xlabel('Line')
-    plt.ylabel('Probability to cover line')
-    plt.legend()
-    finish()
+            # Elo predicted win probability
+            lines, prob_to_cover = melo.predict_prob(
+                today, str(lambda1), str(lambda2))
+            ax.plot(lines, prob_to_cover, 'o',
+                    label=r'$\lambda_2={}$'.format(lambda2))
+
+            # true analytic win probability
+            if ax.is_first_col():
+                prob_to_cover = 1 - skellam.cdf(lines, lambda1, lambda2)
+                ax.plot(lines, prob_to_cover, color='k', zorder=0)
+            else:
+                prob_to_cover = 1 - poisson.cdf(lines, lambda1 + lambda2)
+                ax.plot(lines, prob_to_cover, color='k', zorder=0)
+
+        # axes labels
+        if ax.is_first_col():
+            ax.set_ylabel('Probability to cover line')
+        else:
+            ax.legend(handletextpad=.2, loc=1)
+        if ax.is_last_row():
+            ax.set_xlabel(xlabel)
+
+    set_tight()
 
 
 @plot
-def one_line(line=3.5):
+def one_line():
     """
     Test convergence at one value of the line.
 
     """
+    fig, axes = plt.subplots(ncols=2, figsize=figsize(aspect=.309), sharey=True)
+
     # construct a fake Poisson league
     league = PoissonLeague(10**5)
-    now = datetime.today()
+    today = datetime.today()
 
-    # calculate ratings
-    melo = Melo(
-        league.times,
-        league.labels1,
-        league.labels2,
-        league.values,
-        lines=np.union1d(line, -line),
-        k=0.002
-    )
+    melo_args = [
+        ('Fermi', [-3.5, 3.5], league.diff, 'scored $-$ allowed'),
+        ('Bose', [44.5], league.total, 'scored $+$ allowed'),
+    ]
 
-    ratings = melo.ratings
+    for ax, (statistics, lines, values, xlabel) in zip(axes, melo_args):
 
-    lambda1 = league.lambdas[0]
-    ratings1 = ratings[str(lambda1)]['rating']
+        melo = Melo(
+            league.times, league.labels1, league.labels2, values,
+            lines=lines, statistics=statistics, k=1e-3
+        )
 
-    for lambda2 in league.lambdas[1:]:
+        ratings = melo.ratings
+        line = lines[-1]
 
-        # predicted cover probability
-        ratings2 = ratings[str(lambda2)]['rating']
-        ratings_diff = ratings1 - np.fliplr(ratings2)
-        prob = melo.prob_to_cover(ratings_diff[:, -1])
-        label = 'Skellam({}, {})'.format(lambda1, lambda2)
+        lambda1 = league.lambdas[0]
+        ratings1 = ratings[str(lambda1)]['rating']
 
-        iterations = np.arange(len(ratings1))
-        plt.plot(iterations, prob, label=label)
+        for lambda2 in league.lambdas[1:]:
 
-        # true cover probability
-        exact = 1 - skellam.cdf(line, lambda1, lambda2)
-        plt.axhline(exact, color='k')
+            # predicted cover probability
+            ratings2 = ratings[str(lambda2)]['rating']
+            dR = ratings1 + melo.conjugate(ratings2)
+            prob = melo.prob_to_cover(dR[:,-1] if dR.ndim > 1 else dR)
 
-    # axes labels
-    plt.xlabel('Iterations')
-    plt.ylabel('Probability to cover line={}'.format(line))
-    plt.ylim(0, 1)
-    plt.legend(loc='lower left')
-    finish()
+            iterations = np.arange(len(ratings1))
+            ax.plot(iterations, prob)
 
+            # true analytic win probability
+            if ax.is_first_col():
+                prob_to_cover = 1 - skellam.cdf(line, lambda1, lambda2)
+                ax.axhline(prob_to_cover, color='k')
+            else:
+                prob_to_cover = 1 - poisson.cdf(line, lambda1 + lambda2)
+                ax.axhline(prob_to_cover, color='k')
 
-@plot
-def mean_predictions():
-    """
-    Scatterplot predicted vs known value means.
+        # axes labels
+        if ax.is_last_row():
+            ax.set_xlabel('Iterations')
+        if ax.is_first_col():
+            ax.set_ylabel('Probability to cover line')
+            ax.set_title('Spread: line = {}'.format(line),
+                         fontsize=fontsize['small'])
+        else:
+            ax.set_title('Total: line = {}'.format(line),
+                         fontsize=fontsize['small'])
 
-    """
-    # construct a fake Poisson league
-    league = PoissonLeague(10**5)
-    lines = np.arange(-29.5, 30.5, 1)
-    now = datetime.today()
-
-    # calculate ratings
-    melo = Melo(
-        league.times,
-        league.labels1,
-        league.labels2,
-        league.values,
-        lines=lines,
-        k=0.002
-    )
-
-    # mean-value predictions
-    predictors = melo.predictors(thin=100)[-100:]
-    lambda1 = predictors['label1'].astype(float)
-    lambda2 = predictors['label2'].astype(float)
-
-    # compare predicted and true values
-    pred = predictors['mean']
-    true = lambda1 - lambda2
-
-    # scatter plot predicted vs exact
-    plt.plot(pred, true, 'o')
-    plt.plot([-30, 30], [-30, 30], color='k', ls='dashed')
-
-    # axes labels
-    text = r'$\langle \mathrm{Skellam}(\lambda_i, \lambda_j) \rangle$'
-    plt.xlabel(r'Predicted {}'.format(text))
-    plt.ylabel(r'Analytic {}'.format(text))
-    finish()
+    set_tight()
 
 
 def main():
+    import argparse
+
+    logging.basicConfig(
+            format='[%(levelname)s][%(module)s] %(message)s',
+            level=os.getenv('LOGLEVEL', 'info').upper()
+        )
+
     parser = argparse.ArgumentParser()
     parser.add_argument('plots', nargs='*')
     args = parser.parse_args()

@@ -61,7 +61,7 @@ class Melo:
                 raise ValueError(
                     'lines must be symmetric about zero when statistics=Fermi'
                 )
-            self.conjugate = lambda x: -np.flip(x)
+            self.conjugate = lambda x: -(np.fliplr(x) if x.ndim > 1 else np.flip(x))
         elif statistics == 'Bose':
             self.conjugate = lambda x: x
         else:
