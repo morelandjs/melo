@@ -207,7 +207,9 @@ def all_lines():
         if ax.is_first_col():
             ax.set_ylabel('Probability to cover line')
         else:
-            ax.legend(handletextpad=.2, loc=1)
+            l = ax.legend(title=r'$\lambda_1 = {}$'.format(lambda1),
+                      handletextpad=.2, loc=1)
+            l._legend_box.align = 'right'
         if ax.is_last_row():
             ax.set_xlabel(xlabel)
 
@@ -228,7 +230,7 @@ def one_line():
 
     melo_args = [
         ('Fermi', [-3.5, 3.5], league.diff, 'scored $-$ allowed'),
-        ('Bose', [44.5], league.total, 'scored $+$ allowed'),
+        ('Bose', [42.5], league.total, 'scored $+$ allowed'),
     ]
 
     for ax, (statistics, lines, values, xlabel) in zip(axes, melo_args):
@@ -301,15 +303,15 @@ def prior_rating():
             lines=lines, statistics=statistics, k=1e-3
         )
 
+        # constructed prior
+        prob_to_cover = melo.prob_to_cover(2*melo.null_rtg)
+        plt.plot(lines, prob_to_cover, 'o', label=label)
+
         # true prior
         outcomes = melo.values[:, np.newaxis] > melo.lines
         outcomes = (outcomes if melo.dim > 1 else outcomes.ravel())
         prob_to_cover = np.sum(outcomes, axis=0) / np.size(outcomes, axis=0)
-        plt.plot(lines, prob_to_cover, color='k', zorder=0)
-
-        # constructed prior
-        prob_to_cover = melo.prob_to_cover(2*melo.null_rtg)
-        plt.plot(lines, prob_to_cover, 'o', label=label)
+        plt.plot(lines, prob_to_cover, color='k')
 
     plt.xlabel('Lines')
     plt.ylabel('Probability to cover line')
