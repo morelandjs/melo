@@ -53,6 +53,7 @@ class Melo:
         self.times = np.array(times, dtype=str)
         self.labels1 = np.array(labels1, dtype=str)
         self.labels2 = np.array(labels2, dtype=str)
+        self.labels = np.union1d(labels1, labels2)
         self.values = np.array(values, dtype=float)
         self.lines = np.array(lines, dtype=float, ndmin=1)
 
@@ -193,7 +194,7 @@ class Melo:
 
         return ratings
 
-    def predict_prob(self, time, label1, label2, smooth=0):
+    def predict_prob(self, time, label1, label2, smooth=0, neutral=False):
         """
         Predict the distribution of values sampled by a comparison between
         label1 and label2.
@@ -201,8 +202,9 @@ class Melo:
         """
         rating1 = self.query_rating(time, label1)
         rating2 = self.query_rating(time, label2)
+        bias = (0 if neutral else self.bias)
 
-        rating_diff = rating1 + self.conjugate(rating2) + self.bias
+        rating_diff = rating1 + self.conjugate(rating2) + bias
 
         if smooth > 0:
             rating_diff = filters.gaussian_filter1d(
@@ -210,7 +212,7 @@ class Melo:
 
         return self.lines, self.prob_to_cover(rating_diff)
 
-    def predict_mean(self, time, label1, label2, smooth=0):
+    def predict_mean(self, time, label1, label2, smooth=0, neutral=False):
         """
         Predict the mean value for a comparison between label1 and label2.
         One can use integration by parts to calculate the mean of the CDF,
@@ -219,16 +221,16 @@ class Melo:
              = x F(x) | - \int F(x) dx
 
         """
-        x, F = self.predict_prob(time, label1, label2, smooth)
+        x, F = self.predict_prob(time, label1, label2, smooth, neutral)
 
         return np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
 
-    def predict_perc(self, time, label1, label2, q=50, smooth=0):
+    def predict_perc(self, time, label1, label2, q=50, smooth=0, neutral=False):
         """
         Predict the percentiles for a comparison between label1 and label2.
 
         """
-        x, F = self.predict_prob(time, label1, label2, smooth)
+        x, F = self.predict_prob(time, label1, label2, smooth, neutral)
 
         qvec = np.array(q, ndmin=1) / 100
         indices = np.argmin((np.sort(1 - F)[:, np.newaxis] - qvec)**2, axis=0)
