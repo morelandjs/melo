@@ -5,8 +5,9 @@ from __future__ import division
 from collections import defaultdict
 
 import numpy as np
-from scipy.special import erf, erfinv
 from scipy.ndimage import filters
+from scipy.special import erf, erfinv
+from scipy.stats import norm
 
 
 class Melo:
@@ -120,13 +121,6 @@ class Melo:
 
         return .5*rtg_diff
 
-    def prob_to_cover(self, rating_diff):
-        """
-        Normal cumulative probability distribution.
-
-        """
-        return 0.5*(1 + erf(rating_diff/np.sqrt(2)))
-
     def query_rating(self, time, label):
         """
         Find the last rating preceeding the specified 'time'.
@@ -145,7 +139,7 @@ class Melo:
 
     def rate(self, k):
         """
-        Apply the Elo model to the list of binary comparisons.
+        Apply the margin-dependent Elo model to the list of binary comparisons.
 
         """
         R = defaultdict(lambda: self.null_rtg)
@@ -167,7 +161,7 @@ class Melo:
 
             # prior prediction and observed outcome
             rating_diff = rating1 + self.conjugate(rating2) + self.bias
-            prior = self.prob_to_cover(rating_diff)
+            prior = norm.cdf(rating_diff)
             observed = np.where(outcome, 1, 0)
 
             # rating change
@@ -194,10 +188,10 @@ class Melo:
 
         return ratings
 
-    def predict_prob(self, time, label1, label2, smooth=0, neutral=False):
+    def prob_to_cover(self, time, label1, label2, smooth=0, neutral=False):
         """
-        Predict the distribution of values sampled by a comparison between
-        label1 and label2.
+        Predict the probability that a comparison between label1 and label2
+        covers each value of the line.
 
         """
         rating1 = self.query_rating(time, label1)
@@ -210,86 +204,92 @@ class Melo:
             rating_diff = filters.gaussian_filter1d(
                 rating_diff, smooth, mode='nearest')
 
-        return self.lines, self.prob_to_cover(rating_diff)
+        return self.lines, norm.cdf(rating_diff)
 
-    def predict_mean(self, time, label1, label2, smooth=0, neutral=False):
+    def mean(self, time, label1, label2, smooth=0, neutral=False):
         """
         Predict the mean value for a comparison between label1 and label2.
-        One can use integration by parts to calculate the mean of the CDF,
+
+        Calculates the mean of the cumulative distribution function F(x)
+        using integration by parts:
 
         E(x) = \int x P(x) dx
              = x F(x) | - \int F(x) dx
 
         """
-        x, F = self.predict_prob(time, label1, label2, smooth, neutral)
+        if smooth < 0:
+            raise ValueError("Smoothing kernel must be non-negative")
+
+        x, F = self.prob_to_cover(time, label1, label2, smooth, neutral)
 
         return np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
 
-    def predict_perc(self, time, label1, label2, q=50, smooth=0, neutral=False):
+    def percentile(self, time, label1, label2, q=50, smooth=0, neutral=False):
         """
         Predict the percentiles for a comparison between label1 and label2.
 
         """
-        x, F = self.predict_prob(time, label1, label2, smooth, neutral)
+        q = np.true_divide(q, 100.0)
+        if np.count_nonzero(q < 0.0) or np.count_nonzero(q > 1.0):
+            raise ValueError("Percentiles must be in the range [0, 100]")
 
-        qvec = np.array(q, ndmin=1) / 100
-        indices = np.argmin((np.sort(1 - F)[:, np.newaxis] - qvec)**2, axis=0)
+        if smooth < 0:
+            raise ValueError("Smoothing kernel must be non-negative")
 
-        return x[indices][0] if np.isscalar(q) else x[indices]
+        x, F = self.prob_to_cover(time, label1, label2, smooth, neutral)
 
-    def predictors(self, smooth=0, thin=1):
+        indices = np.argmin((np.sort(1 - F)[:, np.newaxis] - q)**2, axis=0)
+
+        return np.asscalar(x[indices]) if np.isscalar(q) else x[indices]
+
+    def statistics(self, smooth=0, thin=1):
         """
-        Generate mean-value predictors for each binary comparison.
-
-        The model predicts the probability that a comparison covers a given
-        line, i.e. F = P(value > line).
-
-        One can use integration by parts to calculate the mean of the CDF,
-
-        E(x) = \int x P(x) dx
-             = x F(x) | - \int F(x) dx
+        Calculate predicted mean and median prior to every binary comparison.
+        Returns a structured array of comparisons and comparison statistics.
 
         """
-        predictors = []
+        comparisons = []
 
         # loop over all binary comparisons
         for (time, label1, label2, value, outcome) in self.comparisons[::thin]:
 
             # integration by parts
-            mean = self.predict_mean(time, label1, label2, smooth=smooth)
-            predictors.append((time, label1, label2, mean, value))
+            mean = self.mean(time, label1, label2, smooth=smooth)
+            median = self.percentile(time, label1, label2, smooth=smooth)
+            comparisons.append((time, label1, label2, mean, median, value))
 
         # convert to structured array
-        predictors = np.array(
-            predictors,
+        comparisons = np.array(
+            comparisons,
             dtype=[
                 ('time',  'M8[us]'),
                 ('label1',    'U8'),
                 ('label2',    'U8'),
                 ('mean',      'f8'),
+                ('median',    'f8'),
                 ('value',     'f8'),
             ]
         )
 
         return predictors
 
-    def rank(self, time, moment='mean'):
+    def rank(self, time, statistic='mean'):
         """
-        Rank labels according to expected mean/median expected for a
-        comparison with an average label.
+        Rank labels according to the specified statistic.
+        Returns a rank sorted list of (label, rank) pairs.
 
         """
-        if moment == 'mean':
-            ranked_list = [
-                (label, self.predict_mean(time, label, 'avg'))
+        if statistic == 'mean':
+            ranked = [
+                (label, self.mean(time, label, 'avg', neutral=True))
                 for label in np.union1d(self.labels1, self.labels2)
             ]
-        elif moment == 'median':
+        elif statistic == 'median':
             ranked_list = [
-                (label, self.predict_perc(time, label, 'avg', q=50))
+                (label, self.percentiles(time, label, 'avg', q=50, neutral=True))
                 for label in np.union1d(self.labels1, self.labels2)
             ]
         else:
-            raise ValueError('no such distribution moment')
+            raise ValueError('no such distribution statistic')
 
         return sorted(ranked_list, key=lambda v: v[1], reverse=True)

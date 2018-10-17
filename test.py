@@ -8,7 +8,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import poisson, skellam
+from scipy.stats import norm, poisson, skellam
 
 from melo import Melo
 
@@ -190,7 +190,7 @@ def all_lines():
         for lambda2 in league.lambdas[1:]:
 
             # Elo predicted win probability
-            lines, prob_to_cover = melo.predict_prob(
+            lines, prob_to_cover = melo.prob_to_cover(
                 today, str(lambda1), str(lambda2))
             ax.plot(lines, prob_to_cover, 'o',
                     label=r'$\lambda_2={}$'.format(lambda2))
@@ -251,7 +251,7 @@ def one_line():
             # predicted cover probability
             ratings2 = ratings[str(lambda2)]['rating']
             dR = ratings1 + melo.conjugate(ratings2)
-            prob = melo.prob_to_cover(dR[:,-1] if dR.ndim > 1 else dR)
+            prob = norm.cdf(dR[:,-1] if dR.ndim > 1 else dR)
 
             iterations = np.arange(len(ratings1))
             ax.plot(iterations, prob)
@@ -304,7 +304,7 @@ def prior_rating():
         )
 
         # constructed prior
-        prob_to_cover = melo.prob_to_cover(2*melo.null_rtg)
+        prob_to_cover = norm.cdf(2*melo.null_rtg)
         plt.plot(lines, prob_to_cover, 'o', label=label)
 
         # true prior
