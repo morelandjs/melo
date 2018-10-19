@@ -178,11 +178,11 @@ def all_lines():
         ('Bose', np.arange(10.5, 81.5), league.total, 'scored $+$ allowed'),
     ]
 
-    for ax, (statistics, lines, values, xlabel) in zip(axes, melo_args):
+    for ax, (mode, lines, values, xlabel) in zip(axes, melo_args):
 
         melo = Melo(
             league.times, league.labels1, league.labels2, values,
-            lines=lines, statistics=statistics, k=1e-3
+            lines=lines, mode=mode, k=1e-3
         )
 
         lambda1 = league.lambdas[0]
@@ -190,7 +190,7 @@ def all_lines():
         for lambda2 in league.lambdas[1:]:
 
             # Elo predicted win probability
-            lines, prob_to_cover = melo.prob_to_cover(
+            lines, prob_to_cover = melo.predict(
                 today, str(lambda1), str(lambda2))
             ax.plot(lines, prob_to_cover, 'o',
                     label=r'$\lambda_2={}$'.format(lambda2))
@@ -233,11 +233,11 @@ def one_line():
         ('Bose', [42.5], league.total, 'scored $+$ allowed'),
     ]
 
-    for ax, (statistics, lines, values, xlabel) in zip(axes, melo_args):
+    for ax, (mode, lines, values, xlabel) in zip(axes, melo_args):
 
         melo = Melo(
             league.times, league.labels1, league.labels2, values,
-            lines=lines, statistics=statistics, k=1e-3
+            lines=lines, mode=mode, k=1e-3
         )
 
         ratings = melo.ratings
@@ -296,11 +296,11 @@ def prior_rating():
         ('Bose', np.arange(10.5, 81.5), league.total, 'scored $+$ allowed'),
     ]
 
-    for (statistics, lines, values, label) in melo_args:
+    for (mode, lines, values, label) in melo_args:
 
         melo = Melo(
             league.times, league.labels1, league.labels2, values,
-            lines=lines, statistics=statistics, k=1e-3
+            lines=lines, mode=mode, k=1e-3
         )
 
         # constructed prior

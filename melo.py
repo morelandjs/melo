@@ -13,7 +13,7 @@ from scipy.stats import norm
 class Melo:
     """
     Melo(times, labels1, labels2, values, lines=0,
-         statistics='Fermi', k=0, bias=0, decay=lambda x: 1
+         mode='Fermi', k=0, bias=0, decay=lambda x: 1
     )
 
     Margin-dependent Elo ratings and predictions.
@@ -39,7 +39,7 @@ class Melo:
 
     - *lines* -- comparison threshold line(s)
 
-    - *statistics* -- behavior of comparisons under label exchange
+    - *mode* -- behavior of comparisons under label exchange
 
     - *k* -- rating update factor
 
@@ -49,7 +49,7 @@ class Melo:
 
     """
     def __init__(self, times, labels1, labels2, values, lines=0,
-                 statistics='Fermi', k=0, bias=0, decay=lambda x: 1):
+                 mode='Fermi', k=0, bias=0, decay=lambda x: 1):
 
         self.times = np.array(times, dtype=str)
         self.labels1 = np.array(labels1, dtype=str)
@@ -58,19 +58,20 @@ class Melo:
         self.values = np.array(values, dtype=float)
         self.lines = np.array(lines, dtype=float, ndmin=1)
 
-        if statistics == 'Fermi':
+        if mode == 'Fermi':
             if all(self.lines != -np.flip(self.lines)):
                 raise ValueError(
-                    'lines must be symmetric about zero when statistics=Fermi'
+                    'lines must be symmetric about zero when mode=Fermi'
                 )
             self.conjugate = lambda x: -(np.fliplr(x) if x.ndim > 1 else np.flip(x))
-        elif statistics == 'Bose':
+        elif mode == 'Bose':
             self.conjugate = lambda x: x
         else:
             raise ValueError(
-                'valid statistics options are Fermi or Bose'
+                'valid mode options are Fermi or Bose'
             )
 
+        self.mode = mode
         self.k = k
         self.bias = bias
         self.decay = decay
@@ -188,12 +189,15 @@ class Melo:
 
         return ratings
 
-    def prob_to_cover(self, time, label1, label2, smooth=0, neutral=False):
+    def predict(self, time, label1, label2, smooth=0, neutral=False):
         """
         Predict the probability that a comparison between label1 and label2
-        covers each value of the line.
+        covers every possible value of the line.
 
         """
+        if smooth < 0:
+            raise ValueError("Smoothing kernel must be non-negative")
+
         rating1 = self.query_rating(time, label1)
         rating2 = self.query_rating(time, label2)
         bias = (0 if neutral else self.bias)
@@ -205,6 +209,14 @@ class Melo:
                 rating_diff, smooth, mode='nearest')
 
         return self.lines, norm.cdf(rating_diff)
+
+    def probability(self, time, label1, label2, lines=0, smooth=0, neutral=False):
+        """
+        Predict the probability that a comparison between label1 and label2
+        covers each value of the line.
+
+        """
+        return np.interp(lines, *self.predict(time, label1, label2, smooth, neutral))
 
     def mean(self, time, label1, label2, smooth=0, neutral=False):
         """
@@ -220,7 +232,7 @@ class Melo:
         if smooth < 0:
             raise ValueError("Smoothing kernel must be non-negative")
 
-        x, F = self.prob_to_cover(time, label1, label2, smooth, neutral)
+        x, F = self.predict(time, label1, label2, smooth, neutral)
 
         return np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
 
@@ -236,7 +248,7 @@ class Melo:
         if smooth < 0:
             raise ValueError("Smoothing kernel must be non-negative")
 
-        x, F = self.prob_to_cover(time, label1, label2, smooth, neutral)
+        x, F = self.predict(time, label1, label2, smooth, neutral)
 
         indices = np.argmin((np.sort(1 - F)[:, np.newaxis] - q)**2, axis=0)
 
