@@ -17,7 +17,11 @@ Basic usage:
 
 .. code-block:: python
 
+   import pkgutil
+
    from melo import Melo
+
+   pkgutil.get_data('melo', 'nfl_scores.dat')
 
    # evaluate a list of binary comparisons
    lines = [-30.5, -29.5, ..., 29.5, 30.5]

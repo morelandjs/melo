@@ -305,3 +305,13 @@ class Melo:
             raise ValueError('no such distribution statistic')
 
         return sorted(ranked_list, key=lambda v: v[1], reverse=True)
+
+    def sample(self, time, label1, label2, smooth=0, neutral=False, size=100):
+        """
+        Draft random samples from the predicted probability distribution.
+
+        """
+        x, F =  self.predict(time, label1, label2, smooth, neutral)
+        rand = np.random.rand(size)
+
+        return np.interp(rand, np.sort(1 - F), x)

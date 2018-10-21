@@ -82,7 +82,7 @@ plt.rcParams.update({
     'image.interpolation': 'none',
 })
 
-plotdir = Path('figures')
+plotdir = Path('_static')
 plotdir.mkdir(exist_ok=True)
 
 plot_functions = {}
