@@ -13,12 +13,12 @@ from scipy.stats import norm, poisson, skellam
 from melo import Melo
 
 # font sizes
-fontsize = dict(
-    large=11,
-    normal=10,
-    small=9,
-    tiny=8,
-)
+#fontsize = dict(
+#    large=11,
+#    normal=10,
+#    small=9,
+#    tiny=8,
+#)
 
 # new tableau colors
 # https://www.tableau.com/about/blog/2016/7/colors-upgrade-tableau-10-56782
@@ -35,50 +35,98 @@ colors = OrderedDict([
     ('gray', '#bab0ac')
 ])
 
+#plt.rcdefaults()
+#plt.rcParams.update({
+#    'font.family': 'serif',
+#    'font.serif': ['CMU Serif'],
+#    'mathtext.fontset': 'cm',
+#    'mathtext.default': 'it',
+#    'mathtext.rm': 'sans',
+#    'mathtext.cal': 'sans',
+#    'font.size': fontsize['normal'],
+#    'legend.fontsize': fontsize['normal'],
+#    'axes.labelsize': fontsize['normal'],
+#    'axes.titlesize': fontsize['large'],
+#    'xtick.labelsize': fontsize['small'],
+#    'ytick.labelsize': fontsize['small'],
+#    'font.weight': 400,
+#    'axes.labelweight': 400,
+#    'axes.titleweight': 400,
+#    'axes.prop_cycle': plt.cycler('color', list(colors.values())),
+#    'lines.linewidth': .8,
+#    'lines.markersize': 3,
+#    'lines.markeredgewidth': 0,
+#    'patch.linewidth': .8,
+#    'axes.linewidth': .6,
+#    'xtick.major.width': .6,
+#    'ytick.major.width': .6,
+#    'xtick.minor.width': .4,
+#    'ytick.minor.width': .4,
+#    'xtick.major.size': 3.,
+#    'ytick.major.size': 3.,
+#    'xtick.minor.size': 2.,
+#    'ytick.minor.size': 2.,
+#    'xtick.major.pad': 3.5,
+#    'ytick.major.pad': 3.5,
+#    'axes.labelpad': 4.,
+#    'axes.formatter.limits': (-5, 5),
+#    'axes.spines.top': False,
+#    'axes.spines.right': False,
+#    'text.color': 'black',
+#    'axes.edgecolor': 'black',
+#    'axes.labelcolor': 'black',
+#    'xtick.color': 'black',
+#    'ytick.color': 'black',
+#    'legend.frameon': False,
+#    'image.cmap': 'Blues',
+#    'image.interpolation': 'none',
+#})
+
+
+default_color = '#404040'
+dashed_line = dict(color=default_color, linestyle='dashed')
+font_size = 16
+
 plt.rcdefaults()
 plt.rcParams.update({
-    'font.family': 'serif',
-    'font.serif': ['CMU Serif'],
-    'mathtext.fontset': 'cm',
-    'mathtext.default': 'it',
-    'mathtext.rm': 'sans',
+    'figure.dpi': 200,
+    'figure.autolayout': True,
+    'font.family': 'sans-serif',
+    'font.sans-serif': ['Lato'],
+    'mathtext.fontset': 'custom',
     'mathtext.cal': 'sans',
-    'font.size': fontsize['normal'],
-    'legend.fontsize': fontsize['normal'],
-    'axes.labelsize': fontsize['normal'],
-    'axes.titlesize': fontsize['large'],
-    'xtick.labelsize': fontsize['small'],
-    'ytick.labelsize': fontsize['small'],
-    'font.weight': 400,
-    'axes.labelweight': 400,
-    'axes.titleweight': 400,
+    'font.size': font_size,
+    'legend.fontsize': font_size,
+    'axes.labelsize': font_size,
+    'axes.titlesize': font_size,
     'axes.prop_cycle': plt.cycler('color', list(colors.values())),
-    'lines.linewidth': .8,
-    'lines.markersize': 3,
-    'lines.markeredgewidth': 0,
-    'patch.linewidth': .8,
-    'axes.linewidth': .6,
-    'xtick.major.width': .6,
-    'ytick.major.width': .6,
-    'xtick.minor.width': .4,
-    'ytick.minor.width': .4,
-    'xtick.major.size': 3.,
-    'ytick.major.size': 3.,
-    'xtick.minor.size': 2.,
-    'ytick.minor.size': 2.,
-    'xtick.major.pad': 3.5,
-    'ytick.major.pad': 3.5,
-    'axes.labelpad': 4.,
-    'axes.formatter.limits': (-5, 5),
-    'axes.spines.top': False,
-    'axes.spines.right': False,
-    'text.color': 'black',
-    'axes.edgecolor': 'black',
-    'axes.labelcolor': 'black',
-    'xtick.color': 'black',
-    'ytick.color': 'black',
+    'xtick.labelsize': font_size - 2,
+    'ytick.labelsize': font_size - 2,
+    'lines.linewidth': 1.25,
+    'lines.markeredgewidth': .1,
+    'patch.linewidth': 1.25,
+    'axes.grid': True,
+    'axes.axisbelow': True,
+    'axes.facecolor': '#eaeaf2',
+    'axes.linewidth': 0,
+    'grid.linestyle': '-',
+    'grid.linewidth': 1,
+    'grid.color': '#fcfcfc',
+    'savefig.facecolor': '#fcfcfc',
+    'xtick.major.size': 0,
+    'ytick.major.size': 0,
+    'xtick.minor.size': 0,
+    'ytick.minor.size': 0,
+    'xtick.major.pad': 7,
+    'ytick.major.pad': 7,
+    'text.color': default_color,
+    'axes.edgecolor': default_color,
+    'axes.labelcolor': default_color,
+    'xtick.color': default_color,
+    'ytick.color': default_color,
+    'legend.numpoints': 1,
+    'legend.scatterpoints': 1,
     'legend.frameon': False,
-    'image.cmap': 'Blues',
     'image.interpolation': 'none',
 })
 
@@ -99,7 +147,7 @@ def plot(f):
 
         fig = plt.gcf()
 
-        plotfile = plotdir / '{}.pdf'.format(f.__name__)
+        plotfile = plotdir / '{}.png'.format(f.__name__)
         fig.savefig(str(plotfile))
         logging.info('wrote %s', plotfile)
         plt.close(fig)
@@ -109,7 +157,7 @@ def plot(f):
     return wrapper
 
 
-def figsize(relwidth=1, aspect=.618, refwidth=8):
+def figsize(relwidth=1, aspect=.618, refwidth=10):
     """
     Return figure dimensions from a relative width (to a reference width) and
     aspect ratio (default: 1/golden ratio).
@@ -270,10 +318,10 @@ def one_line():
         if ax.is_first_col():
             ax.set_ylabel('Probability to cover line')
             ax.set_title('Spread: line = {}'.format(line),
-                         fontsize=fontsize['small'])
+                         fontsize=font_size)
         else:
             ax.set_title('Total: line = {}'.format(line),
-                         fontsize=fontsize['small'])
+                         fontsize=font_size)
 
     set_tight()
 

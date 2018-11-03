@@ -51,11 +51,11 @@ class Melo:
     def __init__(self, times, labels1, labels2, values, lines=0,
                  mode='Fermi', k=0, bias=0, decay=lambda x: 1):
 
-        self.times = np.array(times, dtype=str)
-        self.labels1 = np.array(labels1, dtype=str)
-        self.labels2 = np.array(labels2, dtype=str)
+        self.times = np.array(times, dtype=str, ndmin=1)
+        self.labels1 = np.array(labels1, dtype=str, ndmin=1)
+        self.labels2 = np.array(labels2, dtype=str, ndmin=1)
         self.labels = np.union1d(labels1, labels2)
-        self.values = np.array(values, dtype=float)
+        self.values = np.array(values, dtype=float, ndmin=1)
         self.lines = np.array(lines, dtype=float, ndmin=1)
 
         if mode == 'Fermi':
@@ -71,6 +71,9 @@ class Melo:
                 'valid mode options are Fermi or Bose'
             )
 
+        if k < 0:
+            raise ValueError('rating update factor k must be non-negative')
+
         self.mode = mode
         self.k = k
         self.bias = bias
@@ -78,25 +81,25 @@ class Melo:
 
         self.dim = self.lines.size
         outcomes = self.values[:, np.newaxis] > self.lines
-        outcomes = (outcomes if self.dim > 1 else outcomes.ravel())
+        self.outcomes = (outcomes if self.dim > 1 else outcomes.ravel())
 
         self.comparisons = np.sort(
-            np.rec.fromarrays(
-                [times, labels1, labels2, values, outcomes],
-                dtype=[
-                    ('time', 'M8[us]'),
-                    ('label1',   'U8'),
-                    ('label2',   'U8'),
-                    ('value',    'f8'),
-                    ('outcome',   '?', self.dim),
-                ]
-            ), axis=0
-        )
+            np.rec.fromarrays([
+                self.times,
+                self.labels1,
+                self.labels2,
+                self.values,
+                self.outcomes
+            ], dtype=[
+                ('time', 'M8[us]'),
+                ('label1',   'U8'),
+                ('label2',   'U8'),
+                ('value',    'f8'),
+                ('outcome',   '?', self.dim),
+            ] ), axis=0)
 
         self.oldest = self.comparisons['time'].min()
-
         self.null_rtg = self.null_rating(self.comparisons.outcome)
-
         self.ratings = self.rate(self.k)
 
     def null_rating(self, outcomes):
@@ -122,21 +125,35 @@ class Melo:
 
         return .5*rtg_diff
 
+    def regress(self, rating, elapsed):
+        """
+        Regress rating to the mean as a function of time.
+
+        """
+        return self.null_rtg + self.decay(elapsed) * (rating - self.null_rtg)
+
     def query_rating(self, time, label):
         """
         Find the last rating preceeding the specified 'time'.
 
         """
-        if label not in self.ratings:
+        time = np.datetime64(time)
+
+        if label == 'AVG':
             return self.null_rtg
+        elif label not in self.ratings:
+            raise ValueError("no such label in the list of comparisons")
 
         ratings = self.ratings[label]
-        times = ratings['time'] < time
 
-        if times.sum() > 0:
-            return ratings[times][-1]['rating']
-        else:
-            return self.null_rtg
+        condition = ratings['time'] < time
+
+        if any(condition):
+            prior_rating = ratings[condition][-1]
+            elapsed = time - prior_rating['time']
+            return self.regress(prior_rating['rating'], elapsed)
+
+        return self.null_rtg
 
     def rate(self, k):
         """
@@ -153,10 +170,9 @@ class Melo:
 
             # look up ratings
             rating1, rating2 = [
-                self.null_rtg + self.decay(elapsed) * (rating - self.null_rtg)
-                for elapsed, rating in [
-                        (time - last_update[label], R[label].copy())
-                        for label in [label1, label2]
+                self.regress(rating, elapsed) for rating, elapsed in [
+                    (R[label].copy(), time - last_update[label])
+                    for label in [label1, label2]
                 ]
             ]
 
@@ -196,7 +212,7 @@ class Melo:
 
         """
         if smooth < 0:
-            raise ValueError("Smoothing kernel must be non-negative")
+            raise ValueError("smoothing kernel must be non-negative")
 
         rating1 = self.query_rating(time, label1)
         rating2 = self.query_rating(time, label2)
@@ -230,7 +246,7 @@ class Melo:
 
         """
         if smooth < 0:
-            raise ValueError("Smoothing kernel must be non-negative")
+            raise ValueError("smoothing kernel must be non-negative")
 
         x, F = self.predict(time, label1, label2, smooth, neutral)
 
@@ -242,17 +258,18 @@ class Melo:
 
         """
         q = np.true_divide(q, 100.0)
+
         if np.count_nonzero(q < 0.0) or np.count_nonzero(q > 1.0):
-            raise ValueError("Percentiles must be in the range [0, 100]")
+            raise ValueError("percentiles must be in the range [0, 100]")
 
         if smooth < 0:
-            raise ValueError("Smoothing kernel must be non-negative")
+            raise ValueError("smoothing kernel must be non-negative")
 
         x, F = self.predict(time, label1, label2, smooth, neutral)
 
-        indices = np.argmin((np.sort(1 - F)[:, np.newaxis] - q)**2, axis=0)
+        perc = np.interp(q, np.sort(1 - F), x)
 
-        return np.asscalar(x[indices]) if np.isscalar(q) else x[indices]
+        return np.asscalar(perc) if np.isscalar(q) else perc
 
     def statistics(self, smooth=0, thin=1):
         """
@@ -260,6 +277,12 @@ class Melo:
         Returns a structured array of comparisons and comparison statistics.
 
         """
+        if smooth < 0:
+            raise ValueError("smoothing kernel must be non-negative")
+
+        if not (1 <= thin < self.comparisons.size) or not isinstance(thin, int):
+            raise ValueError("thin must be an int bounded by the array dim")
+
         comparisons = []
 
         # loop over all binary comparisons
@@ -283,7 +306,7 @@ class Melo:
             ]
         )
 
-        return predictors
+        return comparisons
 
     def rank(self, time, statistic='mean'):
         """
@@ -292,13 +315,13 @@ class Melo:
 
         """
         if statistic == 'mean':
-            ranked = [
+            ranked_list = [
                 (label, self.mean(time, label, 'avg', neutral=True))
                 for label in np.union1d(self.labels1, self.labels2)
             ]
         elif statistic == 'median':
             ranked_list = [
-                (label, self.percentiles(time, label, 'avg', q=50, neutral=True))
+                (label, self.percentile(time, label, 'avg', q=50, neutral=True))
                 for label in np.union1d(self.labels1, self.labels2)
             ]
         else:
@@ -311,6 +334,12 @@ class Melo:
         Draft random samples from the predicted probability distribution.
 
         """
+        if smooth < 0:
+            raise ValueError("smoothing kernel must be non-negative")
+
+        if size < 1 or not isinstance(size, int):
+            raise ValueError("sample size must be a positive integer")
+
         x, F =  self.predict(time, label1, label2, smooth, neutral)
         rand = np.random.rand(size)
 
