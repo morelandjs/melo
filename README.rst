@@ -29,18 +29,20 @@ Basic usage:
 
    # the package comes pre-bundled with an example dataset
    pkgdata = pkgutil.get_data('melo', 'nfl_scores.dat').splitlines()
-   times, home, away, spread = zip(*[l.split() for l in pkgdata])
+   time, home, away, spread = zip(*[l.split() for l in pkgdata])
 
    # specify values for the model training parameters
-   melo = Melo(
-       times, home, away, spread, lines=np.arange(-50.5, 51.5),
+   nfl_spreads = Melo(
+       time, home, away, spread, lines=np.arange(-50.5, 51.5),
        mode='Fermi', k=.245, bias=.166,
        decay=lambda t: 1 if t < timedelta(weeks=20) else .597
    )
 
    # specify some 'current' time
-   time = melo.comparisons['time'][-1]
+   time = nfl_spreads.comparisons['time'][-1]
 
    # predict the mean outcome at that time
-   mean = melo.mean(time, 'CLE', 'KC')
+   mean = nfl_spreads.mean(time, 'CLE', 'KC')
+
+   # mean expected CLE vs KC point differential
    print('CLE VS KC: {}'.format(mean))
