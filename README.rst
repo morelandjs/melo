@@ -39,10 +39,10 @@ Basic usage:
    )
 
    # specify some 'current' time
-   time = nfl_spreads.comparisons['time'][-1]
+   current_time = nfl_spreads.comparisons['time'][-1]
 
    # predict the mean outcome at that time
-   mean = nfl_spreads.mean(time, 'CLE', 'KC')
+   mean = nfl_spreads.mean(current_time, 'CLE', 'KC')
 
    # mean expected CLE vs KC point differential
    print('CLE VS KC: {}'.format(mean))
