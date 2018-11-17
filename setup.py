@@ -1,16 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from setuptools import setup
-
-import melo
+import setuptools
 
 with open('README.rst') as f:
     long_description = f.read()
 
-setup(
+setuptools.setup(
     name='melo',
-    version=melo.__version__,
+    version='1.0.0',
     description='Margin dependent Elo ratings and predictions.',
     long_description=long_description,
     author='J. Scott Moreland',
