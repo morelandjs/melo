@@ -9,7 +9,6 @@ from scipy.ndimage import filters
 from scipy.special import erf, erfinv
 from scipy.stats import norm
 
-import matplotlib.pyplot as plt
 
 class Melo:
     """
