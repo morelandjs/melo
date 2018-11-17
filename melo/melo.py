@@ -9,6 +9,7 @@ from scipy.ndimage import filters
 from scipy.special import erf, erfinv
 from scipy.stats import norm
 
+import matplotlib.pyplot as plt
 
 class Melo:
     """
@@ -102,7 +103,7 @@ class Melo:
         self.null_rtg = self.null_rating(self.comparisons.outcome)
         self.ratings = self.rate(self.k)
 
-    def null_rating(self, outcomes):
+    def null_rating(self, outcomes, q=50):
         """
         Assuming all labels are equal, calculate the probability that a
         comparison between label1 and label2 covers each line, i.e.
@@ -116,7 +117,7 @@ class Melo:
         This function then returns half the default rating difference.
 
         """
-        prob = np.sum(outcomes, axis=0) / np.size(outcomes, axis=0)
+        prob = np.mean(outcomes, axis=0)
 
         TINY = 1e-6
         prob = np.clip(prob, TINY, 1 - TINY)
@@ -139,7 +140,7 @@ class Melo:
         """
         time = np.datetime64(time)
 
-        if label == 'AVG':
+        if label == 'NULL':
             return self.null_rtg
         elif label not in self.ratings:
             raise ValueError("no such label in the list of comparisons")
@@ -316,12 +317,12 @@ class Melo:
         """
         if statistic == 'mean':
             ranked_list = [
-                (label, self.mean(time, label, 'avg', neutral=True))
+                (label, self.mean(time, label, 'NULL', neutral=True))
                 for label in np.union1d(self.labels1, self.labels2)
             ]
         elif statistic == 'median':
             ranked_list = [
-                (label, self.percentile(time, label, 'avg', q=50, neutral=True))
+                (label, self.percentile(time, label, 'NULL', q=50, neutral=True))
                 for label in np.union1d(self.labels1, self.labels2)
             ]
         else:
