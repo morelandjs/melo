@@ -47,7 +47,7 @@ These are the model point spread predictions *before* any games are played:
 
 The teams initially sample points from a league-wide minimum-bias point spread distribution, i.e. they are generic and interchangeable.
 
-The figure above shows the expected point spread distribution (colored symbols) of team :math:`\lambda_a=22` against every opponent in the league :math:`\lambda_b`, compared to the league-wide average distribution (black line).
+The figure above shows the expected point spread distribution (colored symbols) of team :math:`\lambda_a=22` against every opponent in the league :math:`\lambda_b` (see legend), compared to the league-wide average distribution (black line).
 
 The model updates the ratings for each Poisson team after every game.
 The ratings should converge to their true values over time.

@@ -24,10 +24,21 @@ Basic usage:
 
    from melo import Melo
 
-   melo = Melo(times, labels1, labels2, values, lines=lines)
+   # run the model on the list of paired comparisons
+   melo = Melo(times, labels1, labels2, comparisons, lines=lines)
 
-.. math::
-   y = \sum\limits_{i=1}^5 x
+   # probability that comparison(label1, label2) > 0
+   win_prob = melo.probability(time, label1, label2, lines=0)
+
+   # probability that comparison(label1, label2) > 5
+   cover_prob = melo.probability(time, label1, label2, lines=5)
+
+   # interquartiles of the predicted comparison distribution
+   interquartiles = melo.percentiles(time, label1, label2, q=[25, 50, 75])
+
+   # ranked labels
+   ranked_labels = melo.rank(time, statistic='mean')
+
 
 User guide
 ----------
@@ -36,8 +47,8 @@ User guide
    :caption: User guide
    :maxdepth: 2
 
-   install
    usage
+   examples
 
 .. toctree::
    :caption: Technical info

@@ -92,8 +92,8 @@ class Melo:
                 self.outcomes
             ], dtype=[
                 ('time', 'M8[us]'),
-                ('label1',   'U8'),
-                ('label2',   'U8'),
+                ('label1',   'U64'),
+                ('label2',   'U64'),
                 ('value',    'f8'),
                 ('outcome',   '?', self.dim),
             ] ), axis=0)
