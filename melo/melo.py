@@ -49,7 +49,7 @@ class Melo:
 
     """
     def __init__(self, times, labels1, labels2, values, lines=0,
-                 mode='Fermi', k=0, bias=0, decay=lambda x: 1):
+                 mode='Fermi', k=0, bias=0, decay=lambda x: 1, smooth=0):
 
         self.times = np.array(times, dtype=str, ndmin=1)
         self.labels1 = np.array(labels1, dtype=str, ndmin=1)
@@ -78,10 +78,7 @@ class Melo:
         self.k = k
         self.bias = bias
         self.decay = decay
-
-        self.dim = self.lines.size
-        outcomes = self.values[:, np.newaxis] > self.lines
-        self.outcomes = (outcomes if self.dim > 1 else outcomes.ravel())
+        self.smooth = smooth
 
         self.comparisons = np.sort(
             np.rec.fromarrays([
@@ -89,20 +86,19 @@ class Melo:
                 self.labels1,
                 self.labels2,
                 self.values,
-                self.outcomes
             ], dtype=[
                 ('time', 'M8[us]'),
-                ('label1',   'U64'),
-                ('label2',   'U64'),
-                ('value',    'f8'),
-                ('outcome',   '?', self.dim),
+                ('label1',  'U64'),
+                ('label2',  'U64'),
+                ('value',   'f8'),
             ] ), axis=0)
 
+        self.dim = self.lines.size
         self.oldest = self.comparisons['time'].min()
-        self.null_rtg = self.null_rating(self.comparisons.outcome)
-        self.ratings = self.rate(self.k)
+        self.null_rtg = self.null_rating(self.values, self.lines)
+        self.ratings = self.rate(self.k, self.smooth)
 
-    def null_rating(self, outcomes, q=50):
+    def null_rating(self, values, lines):
         """
         Assuming all labels are equal, calculate the probability that a
         comparison between label1 and label2 covers each line, i.e.
@@ -116,7 +112,7 @@ class Melo:
         This function then returns half the default rating difference.
 
         """
-        prob = np.mean(outcomes, axis=0)
+        prob = np.mean(values[:, np.newaxis] - lines > 0, axis=0)
 
         TINY = 1e-6
         prob = np.clip(prob, TINY, 1 - TINY)
@@ -155,7 +151,7 @@ class Melo:
 
         return self.null_rtg
 
-    def rate(self, k):
+    def rate(self, k, smooth=0):
         """
         Apply the margin-dependent Elo model to the list of binary comparisons.
 
@@ -166,7 +162,7 @@ class Melo:
         ratings = defaultdict(list)
 
         # loop over all binary comparisons
-        for (time, label1, label2, value, outcome) in self.comparisons:
+        for (time, label1, label2, value) in self.comparisons:
 
             # look up ratings
             rating1, rating2 = [
@@ -179,7 +175,11 @@ class Melo:
             # prior prediction and observed outcome
             rating_diff = rating1 + self.conjugate(rating2) + self.bias
             prior = norm.cdf(rating_diff)
-            observed = np.where(outcome, 1, 0)
+            observed = (
+                1 - norm.cdf(self.lines,  loc=value, scale=smooth)
+                if smooth > 0 else
+                np.where(self.lines > value, 0, 1)
+            )
 
             # rating change
             rating_change = k * (observed - prior)
@@ -205,36 +205,29 @@ class Melo:
 
         return ratings
 
-    def predict(self, time, label1, label2, smooth=0, neutral=False):
+    def predict(self, time, label1, label2, neutral=False):
         """
         Predict the probability that a comparison between label1 and label2
         covers every possible value of the line.
 
         """
-        if smooth < 0:
-            raise ValueError("smoothing kernel must be non-negative")
-
         rating1 = self.query_rating(time, label1)
         rating2 = self.query_rating(time, label2)
         bias = (0 if neutral else self.bias)
 
         rating_diff = rating1 + self.conjugate(rating2) + bias
 
-        if smooth > 0:
-            rating_diff = filters.gaussian_filter1d(
-                rating_diff, smooth, mode='nearest')
-
         return self.lines, norm.cdf(rating_diff)
 
-    def probability(self, time, label1, label2, lines=0, smooth=0, neutral=False):
+    def probability(self, time, label1, label2, lines=0, neutral=False):
         """
         Predict the probability that a comparison between label1 and label2
         covers each value of the line.
 
         """
-        return np.interp(lines, *self.predict(time, label1, label2, smooth, neutral))
+        return np.interp(lines, *self.predict(time, label1, label2, neutral))
 
-    def mean(self, time, label1, label2, smooth=0, neutral=False):
+    def mean(self, time, label1, label2, neutral=False):
         """
         Predict the mean value for a comparison between label1 and label2.
 
@@ -245,14 +238,11 @@ class Melo:
              = x F(x) | - \int F(x) dx
 
         """
-        if smooth < 0:
-            raise ValueError("smoothing kernel must be non-negative")
-
-        x, F = self.predict(time, label1, label2, smooth, neutral)
+        x, F = self.predict(time, label1, label2, neutral)
 
         return np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
 
-    def percentile(self, time, label1, label2, q=50, smooth=0, neutral=False):
+    def percentile(self, time, label1, label2, q=50, neutral=False):
         """
         Predict the percentiles for a comparison between label1 and label2.
 
@@ -262,35 +252,29 @@ class Melo:
         if np.count_nonzero(q < 0.0) or np.count_nonzero(q > 1.0):
             raise ValueError("percentiles must be in the range [0, 100]")
 
-        if smooth < 0:
-            raise ValueError("smoothing kernel must be non-negative")
-
-        x, F = self.predict(time, label1, label2, smooth, neutral)
+        x, F = self.predict(time, label1, label2, neutral)
 
         perc = np.interp(q, np.sort(1 - F), x)
 
         return np.asscalar(perc) if np.isscalar(q) else perc
 
-    def statistics(self, smooth=0, thin=1):
+    def statistics(self, thin=1):
         """
         Calculate predicted mean and median prior to every binary comparison.
         Returns a structured array of comparisons and comparison statistics.
 
         """
-        if smooth < 0:
-            raise ValueError("smoothing kernel must be non-negative")
-
         if not (1 <= thin < self.comparisons.size) or not isinstance(thin, int):
             raise ValueError("thin must be an int bounded by the array dim")
 
         comparisons = []
 
         # loop over all binary comparisons
-        for (time, label1, label2, value, outcome) in self.comparisons[::thin]:
+        for (time, label1, label2, value) in self.comparisons[::thin]:
 
             # integration by parts
-            mean = self.mean(time, label1, label2, smooth=smooth)
-            median = self.percentile(time, label1, label2, smooth=smooth)
+            mean = self.mean(time, label1, label2)
+            median = self.percentile(time, label1, label2)
             comparisons.append((time, label1, label2, mean, median, value))
 
         # convert to structured array
@@ -329,18 +313,15 @@ class Melo:
 
         return sorted(ranked_list, key=lambda v: v[1], reverse=True)
 
-    def sample(self, time, label1, label2, smooth=0, neutral=False, size=100):
+    def sample(self, time, label1, label2, neutral=False, size=100):
         """
         Draft random samples from the predicted probability distribution.
 
         """
-        if smooth < 0:
-            raise ValueError("smoothing kernel must be non-negative")
-
         if size < 1 or not isinstance(size, int):
             raise ValueError("sample size must be a positive integer")
 
-        x, F =  self.predict(time, label1, label2, smooth, neutral)
+        x, F =  self.predict(time, label1, label2, neutral)
         rand = np.random.rand(size)
 
         return np.interp(rand, np.sort(1 - F), x)
