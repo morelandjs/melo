@@ -49,7 +49,7 @@ class Melo:
 
     """
     def __init__(self, times, labels1, labels2, values, lines=0,
-                 mode='Fermi', k=0, bias=0, decay=lambda x: 1, smooth=0):
+                 mode='Fermi', k=0, bias=0, smooth=0, decay=lambda x: 1):
 
         self.times = np.array(times, dtype=str, ndmin=1)
         self.labels1 = np.array(labels1, dtype=str, ndmin=1)
@@ -67,18 +67,19 @@ class Melo:
         elif mode == 'Bose':
             self.conjugate = lambda x: x
         else:
-            raise ValueError(
-                'valid mode options are Fermi or Bose'
-            )
+            raise ValueError('valid mode options are Fermi or Bose')
 
         if k < 0:
             raise ValueError('rating update factor k must be non-negative')
 
+        if smooth < 0:
+            raise ValueError('smooth must be non-negative')
+
         self.mode = mode
         self.k = k
         self.bias = bias
-        self.decay = decay
         self.smooth = smooth
+        self.decay = decay
 
         self.comparisons = np.sort(
             np.rec.fromarrays([
@@ -93,7 +94,6 @@ class Melo:
                 ('value',   'f8'),
             ] ), axis=0)
 
-        self.dim = self.lines.size
         self.oldest = self.comparisons['time'].min()
         self.null_rtg = self.null_rating(self.values, self.lines)
         self.ratings = self.rate(self.k, self.smooth)
@@ -117,9 +117,9 @@ class Melo:
         TINY = 1e-6
         prob = np.clip(prob, TINY, 1 - TINY)
 
-        rtg_diff = np.sqrt(2)*erfinv(2*prob - 1) - self.bias
+        rtg_diff = np.sqrt(2) * erfinv(2*prob - 1) - self.bias
 
-        return .5*rtg_diff
+        return .5 * rtg_diff
 
     def regress(self, rating, elapsed):
         """
@@ -151,56 +151,46 @@ class Melo:
 
         return self.null_rtg
 
-    def rate(self, k, smooth=0):
+    def rate(self, k, smooth):
         """
         Apply the margin-dependent Elo model to the list of binary comparisons.
 
         """
-        R = defaultdict(lambda: self.null_rtg)
-        last_update = defaultdict(lambda: self.oldest)
-
+        last_update = defaultdict(lambda: (self.oldest, self.null_rtg))
         ratings = defaultdict(list)
 
         # loop over all binary comparisons
         for (time, label1, label2, value) in self.comparisons:
 
-            # look up ratings
+            # query ratings
             rating1, rating2 = [
-                self.regress(rating, elapsed) for rating, elapsed in [
-                    (R[label].copy(), time - last_update[label])
-                    for label in [label1, label2]
+                self.regress(last_rating, time - last_time)
+                for last_time, last_rating in [
+                        last_update[label1],
+                        last_update[label2],
                 ]
             ]
 
-            # prior prediction and observed outcome
+            # expected and observed comparison outcomes
             rating_diff = rating1 + self.conjugate(rating2) + self.bias
-            prior = norm.cdf(rating_diff)
-            observed = (
-                1 - norm.cdf(self.lines,  loc=value, scale=smooth)
-                if smooth > 0 else
-                np.where(self.lines > value, 0, 1)
-            )
-
-            # rating change
-            rating_change = k * (observed - prior)
+            expected = norm.cdf(rating_diff)
+            observed = 1 - norm.cdf(self.lines, loc=value, scale=(smooth + 1e-9))
 
             # update current ratings
-            R[label1] = rating1 + rating_change
-            R[label2] = rating2 + self.conjugate(rating_change)
+            rating_change = k * (observed - expected)
+            rating1 += rating_change
+            rating2 += self.conjugate(rating_change)
 
             # record current ratings
-            for label in label1, label2:
-                ratings[label].append((time, R[label].copy()))
-                last_update[label] = time
+            for label, rating in [(label1, rating1), (label2, rating2)]:
+                ratings[label].append((time, rating))
+                last_update[label] = (time, rating)
 
         # recast as a structured array for convenience
         for label in ratings.keys():
             ratings[label] = np.array(
                 ratings[label],
-                dtype=[
-                    ('time',  'M8[us]'),
-                    ('rating', 'f8', self.dim),
-                ]
+                dtype=[('time', 'M8[us]'), ('rating', 'f8', self.lines.size)]
             )
 
         return ratings
