@@ -172,7 +172,7 @@ def spread_prior():
 
     # target starting distribution
     outcomes = melo.values[:, np.newaxis] > melo.lines
-    outcomes = (outcomes if melo.dim > 1 else outcomes.ravel())
+    outcomes = (outcomes if melo.lines.size > 1 else outcomes.ravel())
     prob_to_cover = np.mean(outcomes, axis=0)
     plt.plot(melo.lines, prob_to_cover, color='k')
 
@@ -223,13 +223,13 @@ def spread_calibrated():
         # train margin-dependent Elo model
         lines, prob_to_cover = melo.predict(today, str(lambda1), str(lambda2))
 
-        # true analytic win probability
-        prob_to_cover = 1 - skellam.cdf(lines, lambda1, lambda2)
-        plt.plot(lines, prob_to_cover, color='k')
-
         # Elo predicted win probability
         plt.plot(lines, prob_to_cover, 'o',
                  label=r'$\lambda_2={}$'.format(lambda2))
+
+        # true analytic win probability
+        prob_to_cover = 1 - skellam.cdf(lines, lambda1, lambda2)
+        plt.plot(lines, prob_to_cover, color='k')
 
         plt.xlabel('line $=$ scored $-$ allowed')
         plt.ylabel('probability to cover line')
@@ -263,7 +263,7 @@ def total_prior():
 
     # target starting distribution
     outcomes = melo.values[:, np.newaxis] > melo.lines
-    outcomes = (outcomes if melo.dim > 1 else outcomes.ravel())
+    outcomes = (outcomes if melo.lines.size > 1 else outcomes.ravel())
     prob_to_cover = np.mean(outcomes, axis=0)
     plt.plot(melo.lines, prob_to_cover, color='k')
 
@@ -314,13 +314,13 @@ def total_calibrated():
         # train margin-dependent Elo model
         lines, prob_to_cover = melo.predict(today, str(lambda1), str(lambda2))
 
-        # true analytic win probability
-        prob_to_cover = 1 - poisson.cdf(lines, lambda1 + lambda2)
-        plt.plot(lines, prob_to_cover, color='k')
-
         # Elo predicted win probability
         plt.plot(lines, prob_to_cover, 'o',
                  label=r'$\lambda_2={}$'.format(lambda2))
+
+        # true analytic win probability
+        prob_to_cover = 1 - poisson.cdf(lines, lambda1 + lambda2)
+        plt.plot(lines, prob_to_cover, color='k')
 
         plt.xlabel('line $=$ scored $+$ allowed')
         plt.ylabel('probability to cover line')
@@ -491,7 +491,7 @@ def prior_rating():
 
         # true prior
         outcomes = melo.values[:, np.newaxis] > melo.lines
-        outcomes = (outcomes if melo.dim > 1 else outcomes.ravel())
+        outcomes = (outcomes if melo.lines.size > 1 else outcomes.ravel())
         prob_to_cover = np.sum(outcomes, axis=0) / np.size(outcomes, axis=0)
         plt.plot(lines, prob_to_cover, color='k')
 
