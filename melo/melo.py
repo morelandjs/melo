@@ -248,39 +248,27 @@ class Melo:
 
         return np.asscalar(perc) if np.isscalar(q) else perc
 
-    def statistics(self, thin=1):
+    def residuals(self, statistic='mean'):
         """
-        Calculate predicted mean and median prior to every binary comparison.
-        Returns a structured array of comparisons and comparison statistics.
+        Returns an array of model residuals = predicted - observed
 
         """
-        if not (1 <= thin < self.comparisons.size) or not isinstance(thin, int):
-            raise ValueError("thin must be an int bounded by the array dim")
-
-        comparisons = []
+        residuals = []
 
         # loop over all binary comparisons
-        for (time, label1, label2, value) in self.comparisons[::thin]:
+        for (time, label1, label2, observed) in self.comparisons:
 
-            # integration by parts
-            mean = self.mean(time, label1, label2)
-            median = self.percentile(time, label1, label2)
-            comparisons.append((time, label1, label2, mean, median, value))
+            if statistic == 'mean':
+                predicted = self.mean(time, label1, label2)
+            elif statistic == 'median':
+                predicted = self.percentile(time, label1, label2)
+            else:
+                raise ValueError('no such distribution statistic')
 
-        # convert to structured array
-        comparisons = np.array(
-            comparisons,
-            dtype=[
-                ('time',  'M8[us]'),
-                ('label1',    'U8'),
-                ('label2',    'U8'),
-                ('mean',      'f8'),
-                ('median',    'f8'),
-                ('value',     'f8'),
-            ]
-        )
+            residual = predicted - observed
+            residuals.append(residual)
 
-        return comparisons
+        return np.array(residuals)
 
     def rank(self, time, statistic='mean'):
         """
