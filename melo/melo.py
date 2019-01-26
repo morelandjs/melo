@@ -94,9 +94,11 @@ class Melo:
                 ('value',   'f8'),
             ] ), axis=0)
 
-        self.oldest = self.comparisons['time'].min()
+        self.first_update = self.comparisons['time'].min()
+        self.last_update = self.comparisons['time'].max()
         self.null_rtg = self.null_rating(self.values, self.lines)
         self.ratings = self.rate(self.k, self.smooth)
+
 
     def null_rating(self, values, lines):
         """
@@ -156,7 +158,7 @@ class Melo:
         Apply the margin-dependent Elo model to the list of binary comparisons.
 
         """
-        last_update = defaultdict(lambda: (self.oldest, self.null_rtg))
+        prev_update = defaultdict(lambda: (self.first_update, self.null_rtg))
         ratings = defaultdict(list)
 
         # loop over all binary comparisons
@@ -166,8 +168,8 @@ class Melo:
             rating1, rating2 = [
                 self.regress(last_rating, time - last_time)
                 for last_time, last_rating in [
-                        last_update[label1],
-                        last_update[label2],
+                        prev_update[label1],
+                        prev_update[label2],
                 ]
             ]
 
@@ -184,7 +186,7 @@ class Melo:
             # record current ratings
             for label, rating in [(label1, rating1), (label2, rating2)]:
                 ratings[label].append((time, rating))
-                last_update[label] = (time, rating)
+                prev_update[label] = (time, rating)
 
         # recast as a structured array for convenience
         for label in ratings.keys():
@@ -217,21 +219,6 @@ class Melo:
         """
         return np.interp(lines, *self.predict(time, label1, label2, neutral))
 
-    def mean(self, time, label1, label2, neutral=False):
-        """
-        Predict the mean value for a comparison between label1 and label2.
-
-        Calculates the mean of the cumulative distribution function F(x)
-        using integration by parts:
-
-        E(x) = \int x P(x) dx
-             = x F(x) | - \int F(x) dx
-
-        """
-        x, F = self.predict(time, label1, label2, neutral)
-
-        return np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
-
     def percentile(self, time, label1, label2, q=50, neutral=False):
         """
         Predict the percentiles for a comparison between label1 and label2.
@@ -247,6 +234,28 @@ class Melo:
         perc = np.interp(q, np.sort(1 - F), x)
 
         return np.asscalar(perc) if np.isscalar(q) else perc
+
+    def mean(self, time, label1, label2, neutral=False):
+        """
+        Predict the mean value for a comparison between label1 and label2.
+
+        Calculates the mean of the cumulative distribution function F(x)
+        using integration by parts:
+
+        E(x) = \int x P(x) dx
+             = x F(x) | - \int F(x) dx
+
+        """
+        x, F = self.predict(time, label1, label2, neutral)
+
+        return np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
+
+    def median(self, time, label1, label2, neutral=False):
+        """
+        Predict the median value for a comparison between label1 and label2.
+
+        """
+        return self.percentile(time, label1, label2, q=50, neutral=neutral)
 
     def residuals(self, statistic='mean'):
         """
