@@ -99,7 +99,6 @@ class Melo:
         self.null_rtg = self.null_rating(self.values, self.lines)
         self.ratings = self.rate(self.k, self.smooth)
 
-
     def null_rating(self, values, lines):
         """
         Assuming all labels are equal, calculate the probability that a
@@ -219,15 +218,31 @@ class Melo:
         """
         return np.interp(lines, *self.predict(time, label1, label2, neutral))
 
-    def percentile(self, time, label1, label2, q=50, neutral=False):
+    def percentile(self, time, label1, label2, p=50, neutral=False):
         """
         Predict the percentiles for a comparison between label1 and label2.
 
         """
-        q = np.true_divide(q, 100.0)
+        p = np.true_divide(p, 100.0)
+
+        if np.count_nonzero(p < 0.0) or np.count_nonzero(p > 1.0):
+            raise ValueError("percentiles must be in the range [0, 100]")
+
+        x, F = self.predict(time, label1, label2, neutral)
+
+        perc = np.interp(p, np.sort(1 - F), x)
+
+        return np.asscalar(perc) if np.isscalar(p) else perc
+
+    def quantile(self, time, label1, label2, q=.5, neutral=False):
+        """
+        Predict the quantiles for a comparison between label1 and label2.
+
+        """
+        q = np.asarray(q)
 
         if np.count_nonzero(q < 0.0) or np.count_nonzero(q > 1.0):
-            raise ValueError("percentiles must be in the range [0, 100]")
+            raise ValueError("quantiles must be in the range [0, 1]")
 
         x, F = self.predict(time, label1, label2, neutral)
 
@@ -255,11 +270,17 @@ class Melo:
         Predict the median value for a comparison between label1 and label2.
 
         """
-        return self.percentile(time, label1, label2, q=50, neutral=neutral)
+        return self.quantile(time, label1, label2, q=.5, neutral=neutral)
 
-    def residuals(self, statistic='mean'):
+    def residuals(self, predict='mean', standardize=False):
         """
-        Returns an array of model residuals = predicted - observed
+        Returns an array of observed residuals,
+
+        residual = y_pred - y_obs,
+
+        or standardized residuals,
+
+        std residual = (y_pred - y_obs) / sigma_pred.
 
         """
         residuals = []
@@ -267,17 +288,38 @@ class Melo:
         # loop over all binary comparisons
         for (time, label1, label2, observed) in self.comparisons:
 
-            if statistic == 'mean':
+            if predict == 'mean':
                 predicted = self.mean(time, label1, label2)
-            elif statistic == 'median':
-                predicted = self.percentile(time, label1, label2)
+            elif predict == 'median':
+                predicted = self.quantile(time, label1, label2, q=.5)
             else:
-                raise ValueError('no such distribution statistic')
+                raise ValueError("predict options are 'mean' and 'median'")
 
             residual = predicted - observed
+
+            if standardize is True:
+                qlo, qhi = self.quantile(time, label1, label2, q=[.159, .841])
+                residual /= .5*abs(qhi - qlo)
+
             residuals.append(residual)
 
         return np.array(residuals)
+
+    def quantiles(self):
+        """
+        Returns an array of observed quantiles.
+
+        """
+        quantiles = []
+
+        # loop over all binary comparisons
+        for (time, label1, label2, observed) in self.comparisons:
+
+            quantile = self.probability(time, label1, label2, lines=observed)
+
+            quantiles.append(quantile)
+
+        return np.array(quantiles)
 
     def rank(self, time, statistic='mean'):
         """
@@ -292,7 +334,7 @@ class Melo:
             ]
         elif statistic == 'median':
             ranked_list = [
-                (label, self.percentile(time, label, 'NULL', q=50, neutral=True))
+                (label, self.quantile(time, label, 'NULL', q=.5, neutral=True))
                 for label in np.union1d(self.labels1, self.labels2)
             ]
         else:
