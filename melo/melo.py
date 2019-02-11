@@ -305,6 +305,23 @@ class Melo:
 
         return np.array(residuals)
 
+    def logloss(self):
+        """
+        Returns an array of log losses
+
+        """
+        logloss = []
+
+        # loop over all binary comparisons
+        for (time, label1, label2, observed) in self.comparisons:
+
+            pred = self.probability(time, label1, label2)
+            obs = 1 if observed > 0 else 0
+
+            logloss.append(-obs * np.log(pred) - (1 - obs) * np.log(1 - pred))
+
+        return logloss
+
     def quantiles(self):
         """
         Returns an array of observed quantiles.
