@@ -7,13 +7,15 @@ from collections import defaultdict
 import numpy as np
 from scipy.ndimage import filters
 from scipy.special import erf, erfinv
-from scipy.stats import norm
+from scipy import stats
 
+
+import matplotlib.pyplot as plt
 
 class Melo:
     """
     Melo(times, labels1, labels2, values, lines=0,
-         mode='Fermi', k=0, bias=0, decay=lambda x: 1
+         mode='fermi', k=0, bias=0, decay=lambda x: 1
     )
 
     Margin-dependent Elo ratings and predictions.
@@ -49,7 +51,8 @@ class Melo:
 
     """
     def __init__(self, times, labels1, labels2, values, lines=0,
-                 mode='Fermi', k=0, bias=0, smooth=0, decay=lambda x: 1):
+                 k=0, bias=0, smooth=0, decay=lambda x: 1,
+                 mode='fermi', dist='normal'):
 
         self.times = np.array(times, dtype=str, ndmin=1)
         self.labels1 = np.array(labels1, dtype=str, ndmin=1)
@@ -58,16 +61,16 @@ class Melo:
         self.values = np.array(values, dtype=float, ndmin=1)
         self.lines = np.array(lines, dtype=float, ndmin=1)
 
-        if mode == 'Fermi':
+        if mode == 'fermi':
             if all(self.lines != -np.flip(self.lines)):
                 raise ValueError(
-                    'lines must be symmetric about zero when mode=Fermi'
+                    'lines must be symmetric about zero when mode=fermi'
                 )
             self.conjugate = lambda x: -(np.fliplr(x) if x.ndim > 1 else np.flip(x))
-        elif mode == 'Bose':
+        elif mode == 'bose':
             self.conjugate = lambda x: x
         else:
-            raise ValueError('valid mode options are Fermi or Bose')
+            raise ValueError('valid mode options are fermi or bose')
 
         if k < 0:
             raise ValueError('rating update factor k must be non-negative')
@@ -75,11 +78,19 @@ class Melo:
         if smooth < 0:
             raise ValueError('smooth must be non-negative')
 
-        self.mode = mode
+        if dist not in ['cauchy', 'logistic', 'normal']:
+            raise ValueError('no such distribution')
+
         self.k = k
         self.bias = bias
         self.smooth = smooth
         self.decay = decay
+        self.mode = mode
+        self.cdf= {
+            'cauchy': stats.cauchy.cdf,
+            'logistic': stats.logistic.cdf,
+            'normal': stats.norm.cdf,
+        }[dist]
 
         self.comparisons = np.sort(
             np.rec.fromarrays([
@@ -174,8 +185,8 @@ class Melo:
 
             # expected and observed comparison outcomes
             rating_diff = rating1 + self.conjugate(rating2) + self.bias
-            expected = norm.cdf(rating_diff)
-            observed = 1 - norm.cdf(self.lines, loc=value, scale=(smooth + 1e-9))
+            expected = self.cdf(rating_diff)
+            observed = 1 - self.cdf(self.lines, loc=value, scale=(smooth + 1e-9))
 
             # update current ratings
             rating_change = k * (observed - expected)
@@ -208,7 +219,7 @@ class Melo:
 
         rating_diff = rating1 + self.conjugate(rating2) + bias
 
-        return self.lines, norm.cdf(rating_diff)
+        return self.lines, self.cdf(rating_diff)
 
     def probability(self, time, label1, label2, lines=0, neutral=False):
         """
@@ -285,7 +296,6 @@ class Melo:
         """
         residuals = []
 
-        # loop over all binary comparisons
         for (time, label1, label2, observed) in self.comparisons:
 
             if predict == 'mean':
@@ -305,22 +315,25 @@ class Melo:
 
         return np.array(residuals)
 
-    def logloss(self):
+    def entropy(self):
         """
-        Returns an array of log losses
+        Returns the simulation's total cross entropy:
+
+        S = -\Sum obs*log(pred) + (1 - obs)*log(1 - pred).
 
         """
-        logloss = []
+        entropy = 0
 
-        # loop over all binary comparisons
         for (time, label1, label2, observed) in self.comparisons:
 
-            pred = self.probability(time, label1, label2)
-            obs = 1 if observed > 0 else 0
+            lines, pred = self.predict(time, label1, label2)
+            obs = np.heaviside(observed - lines, .5)
 
-            logloss.append(-obs * np.log(pred) - (1 - obs) * np.log(1 - pred))
+            entropy += -np.sum(
+                obs*np.log(pred) + (1 - obs)*np.log(1 - pred)
+            )
 
-        return logloss
+        return entropy
 
     def quantiles(self):
         """
@@ -329,7 +342,6 @@ class Melo:
         """
         quantiles = []
 
-        # loop over all binary comparisons
         for (time, label1, label2, observed) in self.comparisons:
 
             quantile = self.probability(time, label1, label2, lines=observed)
