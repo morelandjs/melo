@@ -169,30 +169,31 @@ class Melo:
 
         # loop over all binary comparisons
         for (time, label1, label2, value) in self.comparisons:
+            pass
 
             # query ratings
-            rating1, rating2 = [
-                self.regress(last_rating, time - last_time)
-                for last_time, last_rating in [
-                        prev_update[label1],
-                        prev_update[label2],
-                ]
-            ]
+            #rating1, rating2 = [
+            #    self.regress(last_rating, time - last_time)
+            #    for last_time, last_rating in [
+            #            prev_update[label1],
+            #            prev_update[label2],
+            #    ]
+            #]
 
             # expected and observed comparison outcomes
-            rating_diff = rating1 + self.conjugate(rating2) + self.bias
-            expected = self.dist.cdf(rating_diff)
-            observed = self.dist.sf(self.lines, loc=value, scale=(smooth + 1e-9))
+            #rating_diff = rating1 + self.conjugate(rating2) + self.bias
+            #expected = self.dist.cdf(rating_diff)
+            #observed = self.dist.sf(self.lines, loc=value, scale=(smooth + 1e-9))
 
             # update current ratings
-            rating_change = k * (observed - expected)
-            rating1 += rating_change
-            rating2 += self.conjugate(rating_change)
+            #rating_change = k * (observed - expected)
+            #rating1 += rating_change
+            #rating2 += self.conjugate(rating_change)
 
             # record current ratings
-            for label, rating in [(label1, rating1), (label2, rating2)]:
-                ratings[label].append((time, rating))
-                prev_update[label] = (time, rating)
+            #for label, rating in [(label1, rating1), (label2, rating2)]:
+            #    ratings[label].append((time, rating))
+            #    prev_update[label] = (time, rating)
 
         # recast as a structured array for convenience
         for label in ratings.keys():

@@ -482,7 +482,7 @@ def prior_rating():
 
         melo = Melo(
             league.times, league.labels1, league.labels2, values,
-            lines=lines, mode=mode, k=1e-3, dist=skellam(mu1=20, mu2=20)
+            lines=lines, mode=mode, k=1e-3, bias=.5
         )
 
         # constructed prior
