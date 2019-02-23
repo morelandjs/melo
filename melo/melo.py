@@ -10,8 +10,6 @@ from scipy.special import erf, erfinv
 from scipy import stats
 
 
-import matplotlib.pyplot as plt
-
 class Melo:
     """
     Melo(times, labels1, labels2, values, lines=0,
@@ -86,10 +84,10 @@ class Melo:
         self.smooth = smooth
         self.decay = decay
         self.mode = mode
-        self.cdf= {
-            'cauchy': stats.cauchy.cdf,
-            'logistic': stats.logistic.cdf,
-            'normal': stats.norm.cdf,
+        self.dist = {
+            'cauchy': stats.cauchy,
+            'logistic': stats.logistic,
+            'normal': stats.norm,
         }[dist]
 
         self.comparisons = np.sort(
@@ -129,9 +127,7 @@ class Melo:
         TINY = 1e-6
         prob = np.clip(prob, TINY, 1 - TINY)
 
-        rtg_diff = np.sqrt(2) * erfinv(2*prob - 1) - self.bias
-
-        return .5 * rtg_diff
+        return -0.5*(self.dist.isf(prob) + self.bias)
 
     def regress(self, rating, elapsed):
         """
@@ -185,8 +181,8 @@ class Melo:
 
             # expected and observed comparison outcomes
             rating_diff = rating1 + self.conjugate(rating2) + self.bias
-            expected = self.cdf(rating_diff)
-            observed = 1 - self.cdf(self.lines, loc=value, scale=(smooth + 1e-9))
+            expected = self.dist.cdf(rating_diff)
+            observed = self.dist.sf(self.lines, loc=value, scale=(smooth + 1e-9))
 
             # update current ratings
             rating_change = k * (observed - expected)
@@ -219,7 +215,7 @@ class Melo:
 
         rating_diff = rating1 + self.conjugate(rating2) + bias
 
-        return self.lines, self.cdf(rating_diff)
+        return self.lines, self.dist.cdf(rating_diff)
 
     def probability(self, time, label1, label2, lines=0, neutral=False):
         """

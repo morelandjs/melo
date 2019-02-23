@@ -166,7 +166,7 @@ def spread_prior():
     today = datetime.today()
 
     melo = Melo(league.times, league.labels1, league.labels2, league.diff,
-                lines=np.arange(-29.5, 30.5), mode='Fermi', k=1e-3)
+                lines=np.arange(-29.5, 30.5), mode='fermi', k=1e-3)
 
     lambda1 = league.lambdas[0]
 
@@ -214,7 +214,7 @@ def spread_calibrated():
     today = datetime.today()
 
     melo = Melo(league.times, league.labels1, league.labels2, league.diff,
-                lines=np.arange(-29.5, 30.5), mode='Fermi', k=1e-3)
+                lines=np.arange(-29.5, 30.5), mode='fermi', k=1e-3)
 
     lambda1 = league.lambdas[0]
 
@@ -257,7 +257,7 @@ def total_prior():
     today = datetime.today()
 
     melo = Melo(league.times, league.labels1, league.labels2, league.total,
-                lines=np.arange(10.5, 80.5), mode='Bose', k=1e-3)
+                lines=np.arange(10.5, 80.5), mode='bose', k=1e-3)
 
     lambda1 = league.lambdas[0]
 
@@ -305,7 +305,7 @@ def total_calibrated():
     today = datetime.today()
 
     melo = Melo(league.times, league.labels1, league.labels2, league.total,
-                lines=np.arange(10.5, 81.5), mode='Bose', k=1e-3)
+                lines=np.arange(10.5, 81.5), mode='bose', k=1e-3)
 
     lambda1 = league.lambdas[0]
 
@@ -350,8 +350,8 @@ def spread_convergence():
     today = datetime.today()
 
     melo_args = [
-        ('Fermi', [-3.5, 3.5], league.diff, 'scored $-$ allowed'),
-        ('Bose', [42.5], league.total, 'scored $+$ allowed'),
+        ('fermi', [-3.5, 3.5], league.diff, 'scored $-$ allowed'),
+        ('bose', [42.5], league.total, 'scored $+$ allowed'),
     ]
 
     for ax, (mode, lines, values, xlabel) in zip(axes, melo_args):
@@ -411,8 +411,8 @@ def one_line():
     today = datetime.today()
 
     melo_args = [
-        ('Fermi', [-3.5, 3.5], league.diff, 'scored $-$ allowed'),
-        ('Bose', [42.5], league.total, 'scored $+$ allowed'),
+        ('fermi', [-3.5, 3.5], league.diff, 'scored $-$ allowed'),
+        ('bose', [42.5], league.total, 'scored $+$ allowed'),
     ]
 
     for ax, (mode, lines, values, xlabel) in zip(axes, melo_args):
@@ -474,19 +474,19 @@ def prior_rating():
     today = datetime.today()
 
     melo_args = [
-        ('Fermi', np.arange(-29.5, 30.5), league.diff, 'scored $-$ allowed'),
-        ('Bose', np.arange(10.5, 81.5), league.total, 'scored $+$ allowed'),
+        ('fermi', np.arange(-29.5, 30.5), league.diff, 'scored $-$ allowed'),
+        ('bose', np.arange(10.5, 81.5), league.total, 'scored $+$ allowed'),
     ]
 
     for (mode, lines, values, label) in melo_args:
 
         melo = Melo(
             league.times, league.labels1, league.labels2, values,
-            lines=lines, mode=mode, k=1e-3
+            lines=lines, mode=mode, k=1e-3, dist=skellam(mu1=20, mu2=20)
         )
 
         # constructed prior
-        prob_to_cover = norm.cdf(2*melo.null_rtg)
+        prob_to_cover = melo.dist.cdf(2*melo.null_rtg)
         plt.plot(lines, prob_to_cover, 'o', label=label)
 
         # true prior
