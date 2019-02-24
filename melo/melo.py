@@ -12,8 +12,8 @@ from scipy import stats
 
 class Melo:
     """
-    Melo(times, labels1, labels2, values, lines=0,
-         mode='fermi', k=0, bias=0, decay=lambda x: 1
+    Melo(times, labels1, labels2, values, mode,
+         lines=0, dist=normal
     )
 
     Margin-dependent Elo ratings and predictions.
@@ -35,22 +35,18 @@ class Melo:
 
     - *values* -- comparison value
 
+    - *mode* -- comparison commutator
+
     **Optional parameters**
 
     - *lines* -- comparison threshold line(s)
 
-    - *mode* -- behavior of comparisons under label exchange
-
-    - *k* -- rating update factor
-
-    - *bias* -- bias (shift) ratings toward either label
-
-    - *decay* -- function used to regress ratings toward the mean
+    - *dist* -- distribution type
 
     """
-    def __init__(self, times, labels1, labels2, values, lines=0,
-                 k=0, bias=0, smooth=0, decay=lambda x: 1,
-                 mode='fermi', dist='normal'):
+    def __init__(self, times, labels1, labels2, values, mode,
+                 lines=0, k=0, bias=0, smooth=0, dist='normal',
+                 regress=lambda t: 0):
 
         self.times = np.array(times, dtype=str, ndmin=1)
         self.labels1 = np.array(labels1, dtype=str, ndmin=1)
@@ -59,31 +55,29 @@ class Melo:
         self.values = np.array(values, dtype=float, ndmin=1)
         self.lines = np.array(lines, dtype=float, ndmin=1)
 
-        if mode == 'fermi':
+        if mode == 'minus':
             if all(self.lines != -np.flip(self.lines)):
                 raise ValueError(
-                    'lines must be symmetric about zero when mode=fermi'
+                    "lines must be symmetric about zero when mode=minus"
                 )
             self.conjugate = lambda x: -(np.fliplr(x) if x.ndim > 1 else np.flip(x))
-        elif mode == 'bose':
+        elif mode == 'plus':
             self.conjugate = lambda x: x
         else:
-            raise ValueError('valid mode options are fermi or bose')
+            raise ValueError('valid mode options are minus or plus')
 
-        if k < 0:
-            raise ValueError('rating update factor k must be non-negative')
-
-        if smooth < 0:
-            raise ValueError('smooth must be non-negative')
+        if not callable(regress):
+            raise ValueError('regress must be a callable function.')
 
         if dist not in ['cauchy', 'logistic', 'normal']:
             raise ValueError('no such distribution')
 
+        self.mode = mode
         self.k = k
         self.bias = bias
         self.smooth = smooth
-        self.decay = decay
-        self.mode = mode
+        self.regress = regress
+
         self.dist = {
             'cauchy': stats.cauchy,
             'logistic': stats.logistic,
@@ -105,36 +99,30 @@ class Melo:
 
         self.first_update = self.comparisons['time'].min()
         self.last_update = self.comparisons['time'].max()
-        self.null_rtg = self.null_rating(self.values, self.lines)
-        self.ratings = self.rate(self.k, self.smooth)
+        self.minbias_rating = self.calc_minbias_rating()
+        self.ratings = self.rate()
 
-    def null_rating(self, values, lines):
+    def calc_minbias_rating(self):
         """
-        Assuming all labels are equal, calculate the probability that a
-        comparison between label1 and label2 covers each line, i.e.
-
-        prob = P(value1 - value2 > line).
-
-        This probability is used to calculate a default rating difference,
-
-        default_rtg_diff = sqrt(2)*erfiv(2*prob - 1).
-
-        This function then returns half the default rating difference.
+        Typical 'prior' rating of the population.
 
         """
-        prob = np.mean(values[:, np.newaxis] - lines > 0, axis=0)
+        prob = np.mean(
+            self.values[:, np.newaxis] - self.lines > 0, axis=0)
 
         TINY = 1e-6
         prob = np.clip(prob, TINY, 1 - TINY)
 
         return -0.5*(self.dist.isf(prob) + self.bias)
 
-    def regress(self, rating, elapsed):
+    def evolve(self, rating, elapsed_time):
         """
-        Regress rating to the mean as a function of time.
+        Evolve rating to a future time by regressing to the mean.
 
         """
-        return self.null_rtg + self.decay(elapsed) * (rating - self.null_rtg)
+        x = self.regress(elapsed_time)
+
+        return (1 - x)*rating + x*self.minbias_rating
 
     def query_rating(self, time, label):
         """
@@ -143,8 +131,8 @@ class Melo:
         """
         time = np.datetime64(time)
 
-        if label == 'NULL':
-            return self.null_rtg
+        if label == 'None':
+            return self.minbias_rating
         elif label not in self.ratings:
             raise ValueError("no such label in the list of comparisons")
 
@@ -153,47 +141,46 @@ class Melo:
         condition = ratings['time'] < time
 
         if any(condition):
-            prior_rating = ratings[condition][-1]
-            elapsed = time - prior_rating['time']
-            return self.regress(prior_rating['rating'], elapsed)
+            rating = ratings[condition][-1]
+            elapsed_time = time - rating['time']
+            return self.evolve(rating['rating'], elapsed_time)
 
-        return self.null_rtg
+        return self.minbias_rating
 
-    def rate(self, k, smooth):
+    def rate(self):
         """
         Apply the margin-dependent Elo model to the list of binary comparisons.
 
         """
-        prev_update = defaultdict(lambda: (self.first_update, self.null_rtg))
+        prev_update = defaultdict(lambda: (self.first_update, self.minbias_rating))
         ratings = defaultdict(list)
 
         # loop over all binary comparisons
         for (time, label1, label2, value) in self.comparisons:
-            pass
 
             # query ratings
-            #rating1, rating2 = [
-            #    self.regress(last_rating, time - last_time)
-            #    for last_time, last_rating in [
-            #            prev_update[label1],
-            #            prev_update[label2],
-            #    ]
-            #]
+            rating1, rating2 = [
+                self.evolve(prev_rating, time - prev_time)
+                for prev_time, prev_rating in [
+                        prev_update[label1],
+                        prev_update[label2],
+                ]
+            ]
 
             # expected and observed comparison outcomes
-            #rating_diff = rating1 + self.conjugate(rating2) + self.bias
-            #expected = self.dist.cdf(rating_diff)
-            #observed = self.dist.sf(self.lines, loc=value, scale=(smooth + 1e-9))
+            rating_diff = rating1 + self.conjugate(rating2) + self.bias
+            expected = self.dist.cdf(rating_diff)
+            observed = self.dist.sf(self.lines, loc=value, scale=(self.smooth + 1e-9))
 
             # update current ratings
-            #rating_change = k * (observed - expected)
-            #rating1 += rating_change
-            #rating2 += self.conjugate(rating_change)
+            rating_change = self.k * (observed - expected)
+            rating1 += rating_change
+            rating2 += self.conjugate(rating_change)
 
             # record current ratings
-            #for label, rating in [(label1, rating1), (label2, rating2)]:
-            #    ratings[label].append((time, rating))
-            #    prev_update[label] = (time, rating)
+            for label, rating in [(label1, rating1), (label2, rating2)]:
+                ratings[label].append((time, rating))
+                prev_update[label] = (time, rating)
 
         # recast as a structured array for convenience
         for label in ratings.keys():
@@ -355,12 +342,12 @@ class Melo:
         """
         if statistic == 'mean':
             ranked_list = [
-                (label, self.mean(time, label, 'NULL', neutral=True))
+                (label, self.mean(time, label, 'None', neutral=True))
                 for label in np.union1d(self.labels1, self.labels2)
             ]
         elif statistic == 'median':
             ranked_list = [
-                (label, self.quantile(time, label, 'NULL', q=.5, neutral=True))
+                (label, self.quantile(time, label, 'None', q=.5, neutral=True))
                 for label in np.union1d(self.labels1, self.labels2)
             ]
         else:
