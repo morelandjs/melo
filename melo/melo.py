@@ -2,87 +2,59 @@
 
 from __future__ import division
 
-from collections import defaultdict
-
 import numpy as np
-from scipy.ndimage import filters
-from scipy.special import erf, erfinv
 from scipy import stats
 
 
 class Melo:
     """
-    Melo(times, labels1, labels2, values, mode,
-         lines=0, dist=normal
-    )
-
-    Margin-dependent Elo ratings and predictions.
-
-    This class calculates Elo ratings from pairwise comparisons determined by a
-    list of values (outcomes of each comparison) and a specified line (or
-    sequence of lines) used to determine the threshold of comparison.
-
-    **Required parameters**
-
-    These must be list-like objects of length *n_comparisons*, where the
-    number of comparisons must be the same for all lists.
-
-    - *times* -- comparison time stamp
-
-    - *labels1* -- first entity's label name
-
-    - *labels2* -- second entity's label name
-
-    - *values* -- comparison value
-
-    - *mode* -- comparison commutator
-
-    **Optional parameters**
-
-    - *lines* -- comparison threshold line(s)
-
-    - *dist* -- distribution type
+    Margin-dependent Elo (MELO)
 
     """
-    def __init__(self, times, labels1, labels2, values, mode,
+    def __init__(self, times, labels1, labels2, values,
                  lines=0, k=0, bias=0, smooth=0, dist='normal',
-                 regress=lambda t: 0):
+                 prior=None, regress=None, commutes=False):
 
         self.times = np.array(times, dtype=str, ndmin=1)
         self.labels1 = np.array(labels1, dtype=str, ndmin=1)
         self.labels2 = np.array(labels2, dtype=str, ndmin=1)
-        self.labels = np.union1d(labels1, labels2)
         self.values = np.array(values, dtype=float, ndmin=1)
         self.lines = np.array(lines, dtype=float, ndmin=1)
 
-        if mode == 'minus':
-            if all(self.lines != -np.flip(self.lines)):
-                raise ValueError(
-                    "lines must be symmetric about zero when mode=minus"
-                )
-            self.conjugate = lambda x: -(np.fliplr(x) if x.ndim > 1 else np.flip(x))
-        elif mode == 'plus':
-            self.conjugate = lambda x: x
-        else:
-            raise ValueError('valid mode options are minus or plus')
+        self.k = k
+        self.bias = bias
 
-        if not callable(regress):
-            raise ValueError('regress must be a callable function.')
+        if smooth < 0:
+            raise ValueError('smooth must be non-negative')
+
+        self.smooth = max(smooth, 1e-9)
 
         if dist not in ['cauchy', 'logistic', 'normal']:
             raise ValueError('no such distribution')
-
-        self.mode = mode
-        self.k = k
-        self.bias = bias
-        self.smooth = smooth
-        self.regress = regress
 
         self.dist = {
             'cauchy': stats.cauchy,
             'logistic': stats.logistic,
             'normal': stats.norm,
         }[dist]
+
+        if regress is None:
+            self.regress = lambda t: 0
+        elif callable(regress):
+            self.regress = regress
+        else:
+            raise ValueError('regress must be a callable function.')
+
+        if commutes is True:
+            self.conjugate = lambda x: x
+        else:
+            if all(self.lines != -np.flip(self.lines)):
+                raise ValueError(
+                    "lines must be symmetric when commutes is False"
+                )
+            self.conjugate = lambda x: -(
+                np.fliplr(x) if x.ndim > 1 else np.flip(x)
+            )
 
         self.comparisons = np.sort(
             np.rec.fromarrays([
@@ -95,20 +67,20 @@ class Melo:
                 ('label1',  'U64'),
                 ('label2',  'U64'),
                 ('value',   'f8'),
-            ] ), axis=0)
+            ] ), order='time', axis=0)
 
-        self.first_update = self.comparisons['time'].min()
-        self.last_update = self.comparisons['time'].max()
-        self.minbias_rating = self.calc_minbias_rating()
+        self.labels = np.union1d(self.labels1, self.labels2)
+        self.first_update = self.comparisons.time.min()
+        self.last_update = self.comparisons.time.max()
+        self.prior_rating = self.infer_prior_rating(self.values, self.lines)
         self.ratings = self.rate()
 
-    def calc_minbias_rating(self):
+    def infer_prior_rating(self, values, lines):
         """
-        Typical 'prior' rating of the population.
+        Infer typical 'prior' rating from the population.
 
         """
-        prob = np.mean(
-            self.values[:, np.newaxis] - self.lines > 0, axis=0)
+        prob = np.mean(values[:, np.newaxis] - lines > 0, axis=0)
 
         TINY = 1e-6
         prob = np.clip(prob, TINY, 1 - TINY)
@@ -117,12 +89,12 @@ class Melo:
 
     def evolve(self, rating, elapsed_time):
         """
-        Evolve rating to a future time by regressing to the mean.
+        Evolve rating to a future time and regress to the mean.
 
         """
         x = self.regress(elapsed_time)
 
-        return (1 - x)*rating + x*self.minbias_rating
+        return (1 - x)*rating + x*self.prior_rating
 
     def query_rating(self, time, label):
         """
@@ -132,28 +104,34 @@ class Melo:
         time = np.datetime64(time)
 
         if label == 'None':
-            return self.minbias_rating
+            return self.prior_rating
         elif label not in self.ratings:
-            raise ValueError("no such label in the list of comparisons")
+            raise ValueError("no such label in comparisons")
 
         ratings = self.ratings[label]
 
-        condition = ratings['time'] < time
+        condition = ratings.time < time
 
         if any(condition):
             rating = ratings[condition][-1]
-            elapsed_time = time - rating['time']
-            return self.evolve(rating['rating'], elapsed_time)
+            elapsed_time = time - rating.time
+            return self.evolve(rating.rating, elapsed_time)
 
-        return self.minbias_rating
+        return self.prior_rating
 
     def rate(self):
         """
-        Apply the margin-dependent Elo model to the list of binary comparisons.
+        Calculate Elo ratings from the comparison data
 
         """
-        prev_update = defaultdict(lambda: (self.first_update, self.minbias_rating))
-        ratings = defaultdict(list)
+        # complete record of each label's ratings
+        ratings = {label: [] for label in self.labels}
+
+        # temporary variable to store each label's last rating
+        prev_update = {
+            label: (self.first_update, self.prior_rating)
+            for label in self.labels
+        }
 
         # loop over all binary comparisons
         for (time, label1, label2, value) in self.comparisons:
@@ -170,7 +148,7 @@ class Melo:
             # expected and observed comparison outcomes
             rating_diff = rating1 + self.conjugate(rating2) + self.bias
             expected = self.dist.cdf(rating_diff)
-            observed = self.dist.sf(self.lines, loc=value, scale=(self.smooth + 1e-9))
+            observed = self.dist.sf(self.lines, loc=value, scale=self.smooth)
 
             # update current ratings
             rating_change = self.k * (observed - expected)
@@ -182,9 +160,9 @@ class Melo:
                 ratings[label].append((time, rating))
                 prev_update[label] = (time, rating)
 
-        # recast as a structured array for convenience
+        # recast as a structured record array for convenience
         for label in ratings.keys():
-            ratings[label] = np.array(
+            ratings[label] = np.rec.array(
                 ratings[label],
                 dtype=[('time', 'M8[us]'), ('rating', 'f8', self.lines.size)]
             )
@@ -357,7 +335,7 @@ class Melo:
 
     def sample(self, time, label1, label2, neutral=False, size=100):
         """
-        Draft random samples from the predicted probability distribution.
+        Draw random samples from the predicted probability distribution.
 
         """
         if size < 1 or not isinstance(size, int):
