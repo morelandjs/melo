@@ -12,8 +12,8 @@ class Melo:
 
     """
     def __init__(self, times, labels1, labels2, values,
-                 lines=0, k=0, bias=0, smooth=0, dist='normal',
-                 prior=None, regress=None, commutes=False):
+                 lines=0, k=0, smooth=0, dist='normal',
+                 prior=None, biases=None, regress=None, commutes=False):
 
         self.times = np.array(times, dtype=str, ndmin=1)
         self.labels1 = np.array(labels1, dtype=str, ndmin=1)
@@ -22,7 +22,6 @@ class Melo:
         self.lines = np.array(lines, dtype=float, ndmin=1)
 
         self.k = k
-        self.bias = bias
 
         if smooth < 0:
             raise ValueError('smooth must be non-negative')
@@ -37,6 +36,13 @@ class Melo:
             'logistic': stats.logistic,
             'normal': stats.norm,
         }[dist]
+
+        if biases is None:
+            self.biases = np.zeros_like(values)
+        elif np.isscalar(biases):
+            self.biases = biases * np.ones_like(values)
+        else:
+            self.biases = np.array(biases, dtype=float, ndmin=1)
 
         if regress is None:
             self.regress = lambda t: 0
@@ -62,11 +68,13 @@ class Melo:
                 self.labels1,
                 self.labels2,
                 self.values,
+                self.biases,
             ], dtype=[
                 ('time', 'M8[us]'),
                 ('label1',  'U64'),
                 ('label2',  'U64'),
-                ('value',   'f8'),
+                ('value',    'f8'),
+                ('bias',     'f8'),
             ] ), order='time', axis=0)
 
         self.labels = np.union1d(self.labels1, self.labels2)
@@ -85,7 +93,7 @@ class Melo:
         TINY = 1e-6
         prob = np.clip(prob, TINY, 1 - TINY)
 
-        return -0.5*(self.dist.isf(prob) + self.bias)
+        return -0.5*self.dist.isf(prob)
 
     def evolve(self, rating, elapsed_time):
         """
@@ -103,7 +111,7 @@ class Melo:
         """
         time = np.datetime64(time)
 
-        if label == 'None':
+        if label == 'Average':
             return self.prior_rating
         elif label not in self.ratings:
             raise ValueError("no such label in comparisons")
@@ -134,7 +142,7 @@ class Melo:
         }
 
         # loop over all binary comparisons
-        for (time, label1, label2, value) in self.comparisons:
+        for (time, label1, label2, value, bias) in self.comparisons:
 
             # query ratings
             rating1, rating2 = [
@@ -146,7 +154,7 @@ class Melo:
             ]
 
             # expected and observed comparison outcomes
-            rating_diff = rating1 + self.conjugate(rating2) + self.bias
+            rating_diff = rating1 + self.conjugate(rating2) + bias
             expected = self.dist.cdf(rating_diff)
             observed = self.dist.sf(self.lines, loc=value, scale=self.smooth)
 
@@ -169,7 +177,7 @@ class Melo:
 
         return ratings
 
-    def predict(self, time, label1, label2, neutral=False):
+    def predict(self, time, label1, label2, bias=0):
         """
         Predict the probability that a comparison between label1 and label2
         covers every possible value of the line.
@@ -177,21 +185,20 @@ class Melo:
         """
         rating1 = self.query_rating(time, label1)
         rating2 = self.query_rating(time, label2)
-        bias = (0 if neutral else self.bias)
 
         rating_diff = rating1 + self.conjugate(rating2) + bias
 
         return self.lines, self.dist.cdf(rating_diff)
 
-    def probability(self, time, label1, label2, lines=0, neutral=False):
+    def probability(self, time, label1, label2, lines=0, bias=0):
         """
         Predict the probability that a comparison between label1 and label2
         covers each value of the line.
 
         """
-        return np.interp(lines, *self.predict(time, label1, label2, neutral))
+        return np.interp(lines, *self.predict(time, label1, label2, bias=bias))
 
-    def percentile(self, time, label1, label2, p=50, neutral=False):
+    def percentile(self, time, label1, label2, p=50, bias=0):
         """
         Predict the percentiles for a comparison between label1 and label2.
 
@@ -201,13 +208,13 @@ class Melo:
         if np.count_nonzero(p < 0.0) or np.count_nonzero(p > 1.0):
             raise ValueError("percentiles must be in the range [0, 100]")
 
-        x, F = self.predict(time, label1, label2, neutral)
+        x, F = self.predict(time, label1, label2, bias=bias)
 
         perc = np.interp(p, np.sort(1 - F), x)
 
         return np.asscalar(perc) if np.isscalar(p) else perc
 
-    def quantile(self, time, label1, label2, q=.5, neutral=False):
+    def quantile(self, time, label1, label2, q=.5, bias=0):
         """
         Predict the quantiles for a comparison between label1 and label2.
 
@@ -217,13 +224,13 @@ class Melo:
         if np.count_nonzero(q < 0.0) or np.count_nonzero(q > 1.0):
             raise ValueError("quantiles must be in the range [0, 1]")
 
-        x, F = self.predict(time, label1, label2, neutral)
+        x, F = self.predict(time, label1, label2, bias=bias)
 
         perc = np.interp(q, np.sort(1 - F), x)
 
         return np.asscalar(perc) if np.isscalar(q) else perc
 
-    def mean(self, time, label1, label2, neutral=False):
+    def mean(self, time, label1, label2, bias=0):
         """
         Predict the mean value for a comparison between label1 and label2.
 
@@ -234,16 +241,16 @@ class Melo:
              = x F(x) | - \int F(x) dx
 
         """
-        x, F = self.predict(time, label1, label2, neutral)
+        x, F = self.predict(time, label1, label2, bias=bias)
 
         return np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
 
-    def median(self, time, label1, label2, neutral=False):
+    def median(self, time, label1, label2, bias=0):
         """
         Predict the median value for a comparison between label1 and label2.
 
         """
-        return self.quantile(time, label1, label2, q=.5, neutral=neutral)
+        return self.quantile(time, label1, label2, q=.5, bias=bias)
 
     def residuals(self, predict='mean', standardize=False):
         """
@@ -258,19 +265,20 @@ class Melo:
         """
         residuals = []
 
-        for (time, label1, label2, observed) in self.comparisons:
+        for (time, label1, label2, observed, bias) in self.comparisons:
 
             if predict == 'mean':
-                predicted = self.mean(time, label1, label2)
+                predicted = self.mean(time, label1, label2, bias=bias)
             elif predict == 'median':
-                predicted = self.quantile(time, label1, label2, q=.5)
+                predicted = self.quantile(time, label1, label2, q=.5, bias=bias)
             else:
                 raise ValueError("predict options are 'mean' and 'median'")
 
             residual = predicted - observed
 
             if standardize is True:
-                qlo, qhi = self.quantile(time, label1, label2, q=[.159, .841])
+                qlo, qhi = self.quantile(time, label1, label2,
+                                         q=[.159, .841], bias=bias)
                 residual /= .5*abs(qhi - qlo)
 
             residuals.append(residual)
@@ -286,9 +294,9 @@ class Melo:
         """
         entropy = 0
 
-        for (time, label1, label2, observed) in self.comparisons:
+        for (time, label1, label2, observed, bias) in self.comparisons:
 
-            lines, pred = self.predict(time, label1, label2)
+            lines, pred = self.predict(time, label1, label2, bias=bias)
             obs = np.heaviside(observed - lines, .5)
 
             entropy += -np.sum(
@@ -304,9 +312,10 @@ class Melo:
         """
         quantiles = []
 
-        for (time, label1, label2, observed) in self.comparisons:
+        for (time, label1, label2, observed, bias) in self.comparisons:
 
-            quantile = self.probability(time, label1, label2, lines=observed)
+            quantile = self.probability(time, label1, label2,
+                                        lines=observed, bias=bias)
 
             quantiles.append(quantile)
 
@@ -320,12 +329,12 @@ class Melo:
         """
         if statistic == 'mean':
             ranked_list = [
-                (label, self.mean(time, label, 'None', neutral=True))
+                (label, self.mean(time, label, 'Average', bias=0))
                 for label in np.union1d(self.labels1, self.labels2)
             ]
         elif statistic == 'median':
             ranked_list = [
-                (label, self.quantile(time, label, 'None', q=.5, neutral=True))
+                (label, self.quantile(time, label, 'Average', q=.5, bias=0))
                 for label in np.union1d(self.labels1, self.labels2)
             ]
         else:
@@ -333,7 +342,7 @@ class Melo:
 
         return sorted(ranked_list, key=lambda v: v[1], reverse=True)
 
-    def sample(self, time, label1, label2, neutral=False, size=100):
+    def sample(self, time, label1, label2, bias=0, size=100):
         """
         Draw random samples from the predicted probability distribution.
 
@@ -341,7 +350,7 @@ class Melo:
         if size < 1 or not isinstance(size, int):
             raise ValueError("sample size must be a positive integer")
 
-        x, F =  self.predict(time, label1, label2, neutral)
+        x, F =  self.predict(time, label1, label2, bias=bias)
         rand = np.random.rand(size)
 
         return np.interp(rand, np.sort(1 - F), x)
