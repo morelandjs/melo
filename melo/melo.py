@@ -237,9 +237,10 @@ class Melo:
         probabilities = []
 
         for time, label1, label2, bias in zip(times, labels1, labels2, biases):
+            predict = self._predict(time, label1, label2, bias=bias)
 
             probabilities.append(
-                np.interp(lines, *self._predict(time, label1, label2, bias=bias))
+                np.interp(lines, *predict)
             )
 
         return np.squeeze(probabilities)
@@ -309,8 +310,8 @@ class Melo:
         Calculates the mean of the cumulative distribution function F(x)
         using integration by parts:
 
-        E(x) = \int x P(x) dx
-             = x F(x) | - \int F(x) dx
+        E(x) = \\int x P(x) dx
+             = x F(x) | - \\int F(x) dx
 
         """
         times = np.array(times, dtype='datetime64[s]', ndmin=1)
@@ -406,7 +407,7 @@ class Melo:
         """
         Returns the simulation's total cross entropy:
 
-        S = -\Sum obs*log(pred) + (1 - obs)*log(1 - pred).
+        S = -\\Sum obs*log(pred) + (1 - obs)*log(1 - pred).
 
         """
         entropy = 0
@@ -463,7 +464,7 @@ class Melo:
 
         for time, label1, label2, bias in zip(times, labels1, labels2, biases):
 
-            x, F =  self._predict(time, label1, label2, bias=bias)
+            x, F = self._predict(time, label1, label2, bias=bias)
             rand = np.random.rand(size)
 
             samples.append(np.interp(rand, np.sort(1 - F), x))
