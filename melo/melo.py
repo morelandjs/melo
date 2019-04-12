@@ -3,7 +3,8 @@
 from __future__ import division
 
 import numpy as np
-from scipy import stats
+
+from .dist import normal, logistic
 
 
 class Melo:
@@ -31,9 +32,25 @@ class Melo:
     See online documentation <placeholder> for usage details.
 
     """
-    def __init__(self, times, labels1, labels2, values,
-                 lines=0, k=0, smooth=0, dist='normal',
-                 bias=None, regress=None, commutes=False):
+    seconds = {
+        'year': 3.154e7,
+        'month': 2.628e6,
+        'week': 604800.,
+        'day': 86400.,
+        'hour': 3600.,
+        'minute': 60.,
+        'second': 1.,
+        'millisecond': 1e-3,
+        'microsecond': 1e-6,
+        'nanosecond': 1e-9,
+        'picsecond': 1e-12,
+        'femptosecond': 1e-15,
+        'attosecond': 1e-18,
+    }
+
+    def __init__(self, times, labels1, labels2, values, lines=0, k=0,
+                 smooth=0, regress=lambda x: 0, regress_unit='year',
+                 dist='normal', bias=None, commutes=False):
 
         self.times = np.array(times, dtype='datetime64[s]', ndmin=1)
         self.labels1 = np.array(labels1, dtype='str', ndmin=1)
@@ -46,16 +63,24 @@ class Melo:
         if smooth < 0:
             raise ValueError('smooth must be non-negative')
 
-        self.smooth = max(smooth, 1e-9)
+        self.smooth = max(smooth, 1e-12)
 
-        if dist not in ['cauchy', 'logistic', 'normal']:
+        if not callable(regress):
+            raise ValueError('regress must be univariate scalar function')
+
+        self.regress = regress
+
+        if regress_unit not in self.seconds.keys():
+            raise ValueError('regress_unit must be valid time unit (see docs)')
+
+        self.seconds_per_period = self.seconds[regress_unit]
+
+        if dist == 'normal':
+            self.dist = normal
+        elif dist == 'logistic':
+            self.dist = logistic
+        else:
             raise ValueError('no such distribution')
-
-        self.dist = {
-            'cauchy': stats.cauchy,
-            'logistic': stats.logistic,
-            'normal': stats.norm,
-        }[dist]
 
         if bias is None:
             self.biases = np.zeros_like(values, dtype='float')
@@ -64,13 +89,6 @@ class Melo:
         else:
             self.biases = np.array(bias, dtype='float', ndmin=1)
 
-        if regress is None:
-            self.regress = lambda t: 0
-        elif callable(regress):
-            self.regress = regress
-        else:
-            raise ValueError('regress must be a callable function.')
-
         if commutes is True:
             self.conjugate = lambda x: x
         else:
@@ -78,9 +96,7 @@ class Melo:
                 raise ValueError(
                     "lines must be symmetric when commutes is False"
                 )
-            self.conjugate = lambda x: -(
-                np.fliplr(x) if x.ndim > 1 else np.flip(x)
-            )
+            self.conjugate = lambda x: -x[::-1]
 
         self.comparisons = np.sort(
             np.rec.fromarrays([
@@ -101,7 +117,7 @@ class Melo:
         self.first_update = self.comparisons.time.min()
         self.last_update = self.comparisons.time.max()
         self.prior_rating = self.infer_prior_rating(self.values, self.lines)
-        self.ratings_history = self.calculate_ratings()
+        self.entropy, self.ratings_history = self.calculate_ratings()
 
     def infer_prior_rating(self, values, lines):
         """
@@ -115,7 +131,7 @@ class Melo:
 
         return -0.5*self.dist.isf(prob)
 
-    def evolve(self, rating, elapsed_time):
+    def evolve(self, rating, time_delta):
         """
         Evolve rating to a future time and regress to the mean.
 
@@ -123,9 +139,11 @@ class Melo:
         which defaults to zero (no regression).
 
         """
-        x = self.regress(elapsed_time)
+        elapsed_seconds = time_delta / np.timedelta64(1, 's')
+        elapsed_periods = elapsed_seconds / self.seconds_per_period
+        regress = self.regress(elapsed_periods)
 
-        return (1 - x)*rating + x*self.prior_rating
+        return rating + regress*(self.prior_rating - rating)
 
     def query_rating(self, time, label):
         """
@@ -135,7 +153,7 @@ class Melo:
         Returns prior_rating if label == average.
 
         """
-        time = np.datetime64(time)
+        time = np.datetime64(time, 's')
 
         if label.lower() == 'average':
             return self.prior_rating
@@ -167,6 +185,12 @@ class Melo:
             for label in self.labels
         }
 
+        entropy = 0
+
+        # prediction cross entropy
+        def cross_entropy(pred, obs):
+            return -(obs*np.log(pred) + (1 - obs)*np.log(1 - pred)).sum()
+
         # loop over all binary comparisons
         for (time, label1, label2, value, bias) in self.comparisons:
 
@@ -181,11 +205,14 @@ class Melo:
 
             # expected and observed comparison outcomes
             rating_diff = rating1 + self.conjugate(rating2) + bias
-            expected = self.dist.cdf(rating_diff)
-            observed = self.dist.sf(self.lines, loc=value, scale=self.smooth)
+            obs = self.dist.sf(self.lines, loc=value, scale=self.smooth)
+            pred = self.dist.cdf(rating_diff)
+
+            # update cross entropy
+            entropy += cross_entropy(pred, obs)
 
             # update current ratings
-            rating_change = self.k * (observed - expected)
+            rating_change = self.k * (obs - pred)
             rating1 += rating_change
             rating2 += self.conjugate(rating_change)
 
@@ -203,7 +230,9 @@ class Melo:
                 ]
             )
 
-        return ratings_history
+        entropy /= (self.lines.size * np.size(self.comparisons, axis=0))
+
+        return entropy, ratings_history
 
     def _predict(self, time, label1, label2, bias=0):
         """
@@ -365,22 +394,26 @@ class Melo:
             residual = (y_pred - y_obs) / sigma_pred.
 
         """
+        if statistic == 'mean':
+            func = self.mean
+        elif statistic == 'median':
+            func = self.median
+        else:
+            raise ValueError("statistic options are 'mean' and 'median'")
+
         residuals = []
 
-        for (time, label1, label2, observed, bias) in self.comparisons:
+        for (time, label1, label2, obs, bias) in self.comparisons:
 
-            if statistic == 'mean':
-                predicted = self.mean(time, label1, label2, bias=bias)
-            elif statistic == 'median':
-                predicted = self.median(time, label1, label2, bias=bias)
-            else:
-                raise ValueError("statistic options are 'mean' and 'median'")
-
-            residual = predicted - observed
+            pred = func(time, label1, label2, bias=bias)
+            residual = pred - obs
 
             if standardize is True:
-                qlo, qhi = self.quantile(time, label1, label2,
-                                         q=[.159, .841], bias=bias)
+
+                qlo, qhi = self.quantile(
+                    time, label1, label2, q=[.159, .841], bias=bias
+                )
+
                 residual /= .5*abs(qhi - qlo)
 
             residuals.append(residual)
@@ -394,34 +427,15 @@ class Melo:
         """
         quantiles = []
 
-        for (time, label1, label2, observed, bias) in self.comparisons:
+        for (time, label1, label2, obs, bias) in self.comparisons:
 
-            quantile = self.probability(time, label1, label2,
-                                        lines=observed, bias=bias)
+            quantile = self.probability(
+                time, label1, label2, lines=obs, bias=bias
+            )
 
             quantiles.append(quantile)
 
         return np.array(quantiles)
-
-    def entropy(self):
-        """
-        Returns the simulation's total cross entropy:
-
-        S = -\\Sum obs*log(pred) + (1 - obs)*log(1 - pred).
-
-        """
-        entropy = 0
-
-        for (time, label1, label2, observed, bias) in self.comparisons:
-
-            lines, pred = self._predict(time, label1, label2, bias=bias)
-            obs = np.heaviside(observed - lines, .5)
-
-            entropy += -np.sum(
-                obs*np.log(pred) + (1 - obs)*np.log(1 - pred)
-            )
-
-        return entropy
 
     def rank(self, time, statistic='mean'):
         """
@@ -437,7 +451,7 @@ class Melo:
             raise ValueError('no such distribution statistic')
 
         ranked_list = [
-            (label, func(time, label, 'average'))
+            (label, np.float(func(time, label, 'average')))
             for label in self.labels
         ]
 
