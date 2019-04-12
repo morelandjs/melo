@@ -268,9 +268,7 @@ class Melo:
         for time, label1, label2, bias in zip(times, labels1, labels2, biases):
             predict = self._predict(time, label1, label2, bias=bias)
 
-            probabilities.append(
-                np.interp(lines, *predict)
-            )
+            probabilities.append(np.interp(lines, *predict))
 
         return np.squeeze(probabilities)
 
@@ -383,7 +381,7 @@ class Melo:
 
         return np.squeeze(medians)
 
-    def residuals(self, statistic='mean', standardize=False):
+    def residuals(self, predict='mean', standardize=False):
         """
         Returns an array of model validation residuals.
 
@@ -394,12 +392,12 @@ class Melo:
             residual = (y_pred - y_obs) / sigma_pred.
 
         """
-        if statistic == 'mean':
+        if predict == 'mean':
             func = self.mean
-        elif statistic == 'median':
+        elif predict == 'median':
             func = self.median
         else:
-            raise ValueError("statistic options are 'mean' and 'median'")
+            raise ValueError("predict options are 'mean' and 'median'")
 
         residuals = []
 
@@ -437,18 +435,20 @@ class Melo:
 
         return np.array(quantiles)
 
-    def rank(self, time, statistic='mean'):
+    def rank(self, time, order='mean'):
         """
-        Ranks labels according to the specified statistic.
+        Ranks labels according to the specified order parameter.
         Returns a rank sorted list of (label, rank) pairs.
 
         """
-        if statistic == 'mean':
+        if order == 'mean':
             func = self.mean
-        elif statistic == 'median':
+        elif order == 'median':
             func = self.median
+        elif order == 'win':
+            func = self.probability
         else:
-            raise ValueError('no such distribution statistic')
+            raise ValueError('no such order parameter')
 
         ranked_list = [
             (label, np.float(func(time, label, 'average')))
