@@ -155,37 +155,45 @@ class PoissonLeague:
                 self.total.append(score1 + score2)
 
 
+league = PoissonLeague(10**5)
+today = datetime.today()
+
+melo_spreads = Melo(
+    league.times, league.labels1, league.labels2, league.diff,
+    lines=np.arange(-29.5, 30.5), commutes=False, k=1e-3
+)
+
+melo_totals = Melo(
+    league.times, league.labels1, league.labels2, league.total,
+    lines=np.arange(10.5, 80.5), commutes=True, k=1e-3
+)
+
+
 @plot
 def spread_prior():
     """
     Test rating predictions at every value of the line.
 
     """
-    # construct a fake Poisson league
-    league = PoissonLeague(10**5)
-    today = datetime.today()
-
-    melo = Melo(league.times, league.labels1, league.labels2, league.diff,
-                lines=np.arange(-29.5, 30.5), mode='fermi', k=1e-3)
-
+    # reference label and lines
     lambda1 = league.lambdas[0]
+    lines = melo_spreads.lines
 
     # target starting distribution
-    outcomes = melo.values[:, np.newaxis] > melo.lines
-    outcomes = (outcomes if melo.lines.size > 1 else outcomes.ravel())
+    outcomes = melo_spreads.values[:, np.newaxis] > lines
     prob_to_cover = np.mean(outcomes, axis=0)
-    plt.plot(melo.lines, prob_to_cover, color='k')
+    plt.plot(lines, prob_to_cover, color='k')
 
     for n, lambda2 in enumerate(league.lambdas[1:]):
 
         # target calibrated distributions
-        prob_to_cover = 1 - skellam.cdf(melo.lines, lambda1, lambda2)
-        plt.plot(melo.lines, prob_to_cover, color='.6', zorder=1)
+        prob_to_cover = skellam.sf(lines, lambda1, lambda2)
+        plt.plot(lines, prob_to_cover, color='.6', zorder=1)
 
         # model starting distributions
-        prob_to_cover = norm.cdf(2*melo.null_rtg)
+        prob_to_cover = norm.cdf(2*melo_spreads.prior_rating)
         skip = len(league.lambdas[1:])
-        plt.plot(melo.lines[n::skip], prob_to_cover[n::skip], 'o',
+        plt.plot(lines[n::skip], prob_to_cover[n::skip], 'o',
                  label=r'$\lambda_2={}$'.format(lambda2), zorder=2)
 
         plt.xlabel('line $=$ scored $-$ allowed')
@@ -196,7 +204,7 @@ def spread_prior():
         l._legend_box.align = 'right'
 
         # axes ticks
-        l = np.floor(melo.lines)
+        l = np.floor(lines)
         plt.xticks(l[::10])
         plt.xlim(l.min(), l.max())
 
@@ -209,26 +217,20 @@ def spread_calibrated():
     Test rating predictions at every value of the line.
 
     """
-    # construct a fake Poisson league
-    league = PoissonLeague(10**5)
-    today = datetime.today()
-
-    melo = Melo(league.times, league.labels1, league.labels2, league.diff,
-                lines=np.arange(-29.5, 30.5), mode='fermi', k=1e-3)
-
     lambda1 = league.lambdas[0]
 
     for lambda2 in league.lambdas[1:]:
 
         # train margin-dependent Elo model
-        lines, prob_to_cover = melo.predict(today, str(lambda1), str(lambda2))
+        lines, prob_to_cover = melo_spreads._predict(
+            today, str(lambda1), str(lambda2))
 
         # Elo predicted win probability
         plt.plot(lines, prob_to_cover, 'o',
                  label=r'$\lambda_2={}$'.format(lambda2))
 
         # true analytic win probability
-        prob_to_cover = 1 - skellam.cdf(lines, lambda1, lambda2)
+        prob_to_cover = skellam.sf(lines, lambda1, lambda2)
         plt.plot(lines, prob_to_cover, color='k')
 
         plt.xlabel('line $=$ scored $-$ allowed')
@@ -252,31 +254,25 @@ def total_prior():
     Test rating predictions at every value of the line.
 
     """
-    # construct a fake Poisson league
-    league = PoissonLeague(10**5)
-    today = datetime.today()
-
-    melo = Melo(league.times, league.labels1, league.labels2, league.total,
-                lines=np.arange(10.5, 80.5), mode='bose', k=1e-3)
-
+    # reference label and lines
     lambda1 = league.lambdas[0]
+    lines = melo_totals.lines
 
     # target starting distribution
-    outcomes = melo.values[:, np.newaxis] > melo.lines
-    outcomes = (outcomes if melo.lines.size > 1 else outcomes.ravel())
+    outcomes = melo_totals.values[:, np.newaxis] > lines
     prob_to_cover = np.mean(outcomes, axis=0)
-    plt.plot(melo.lines, prob_to_cover, color='k')
+    plt.plot(lines, prob_to_cover, color='k')
 
     for n, lambda2 in enumerate(league.lambdas[1:]):
 
         # target calibrated distributions
-        prob_to_cover = 1 - poisson.cdf(melo.lines, lambda1 + lambda2)
-        plt.plot(melo.lines, prob_to_cover, color='.6', zorder=1)
+        prob_to_cover = poisson.sf(lines, lambda1 + lambda2)
+        plt.plot(lines, prob_to_cover, color='.6', zorder=1)
 
         # model starting distributions
-        prob_to_cover = norm.cdf(2*melo.null_rtg)
+        prob_to_cover = norm.cdf(2*melo_totals.prior_rating)
         skip = len(league.lambdas[1:])
-        plt.plot(melo.lines[n::skip], prob_to_cover[n::skip], 'o',
+        plt.plot(lines[n::skip], prob_to_cover[n::skip], 'o',
                  label=r'$\lambda_2={}$'.format(lambda2), zorder=2)
 
         plt.xlabel('line $=$ scored $+$ allowed')
@@ -287,7 +283,7 @@ def total_prior():
         l._legend_box.align = 'right'
 
         # axes ticks
-        l = np.floor(melo.lines)
+        l = np.floor(lines)
         plt.xticks(l[::10])
         plt.xlim(l.min(), l.max())
 
@@ -300,26 +296,21 @@ def total_calibrated():
     Test rating predictions at every value of the line.
 
     """
-    # construct a fake Poisson league
-    league = PoissonLeague(10**5)
-    today = datetime.today()
-
-    melo = Melo(league.times, league.labels1, league.labels2, league.total,
-                lines=np.arange(10.5, 81.5), mode='bose', k=1e-3)
-
+    # reference label
     lambda1 = league.lambdas[0]
 
     for lambda2 in league.lambdas[1:]:
 
         # train margin-dependent Elo model
-        lines, prob_to_cover = melo.predict(today, str(lambda1), str(lambda2))
+        lines, prob_to_cover = melo_totals._predict(
+            today, str(lambda1), str(lambda2))
 
         # Elo predicted win probability
         plt.plot(lines, prob_to_cover, 'o',
                  label=r'$\lambda_2={}$'.format(lambda2))
 
         # true analytic win probability
-        prob_to_cover = 1 - poisson.cdf(lines, lambda1 + lambda2)
+        prob_to_cover = poisson.sf(lines, lambda1 + lambda2)
         plt.plot(lines, prob_to_cover, color='k')
 
         plt.xlabel('line $=$ scored $+$ allowed')
@@ -343,46 +334,36 @@ def spread_convergence():
     Test rating convergence at one value of the line.
 
     """
-    fig, axes = plt.subplots(ncols=2, figsize=figsize(aspect=.4), sharey=True)
-
-    # construct a fake Poisson league
-    league = PoissonLeague(10**5)
-    today = datetime.today()
+    fig, axes = plt.subplots(
+        ncols=2, figsize=figsize(aspect=.4), sharey=True)
 
     melo_args = [
-        ('fermi', [-3.5, 3.5], league.diff, 'scored $-$ allowed'),
-        ('bose', [42.5], league.total, 'scored $+$ allowed'),
+        (melo_spreads, [-3.5, 3.5], 'scored $-$ allowed'),
+        (melo_totals, [42.5], 'scored $+$ allowed'),
     ]
 
-    for ax, (mode, lines, values, xlabel) in zip(axes, melo_args):
+    for ax, (melo, lines, xlabel) in zip(axes, melo_args):
 
-        melo = Melo(
-            league.times, league.labels1, league.labels2, values,
-            lines=lines, mode=mode, k=1e-3
-        )
-
-        ratings = melo.ratings
+        times = melo.ratings_history.time
         line = lines[-1]
 
-        lambda1 = league.lambdas[0]
-        ratings1 = ratings[str(lambda1)]['rating']
+        lambdas1 = np.full_like(times, league.lambdas[0], dtype=str)
 
         for lambda2 in league.lambdas[1:]:
 
-            # predicted cover probability
-            ratings2 = ratings[str(lambda2)]['rating']
-            dR = ratings1 + melo.conjugate(ratings2)
-            prob = norm.cdf(dR[:,-1] if dR.ndim > 1 else dR)
+            lambdas2 = np.full_like(times, lambda2, dtype=str)
 
-            iterations = np.arange(len(ratings1))
+            # predicted cover probability
+            prob = melo.probability(times, lambdas1, lambdas2, lines=line)
+            iterations = np.arange(len(times))
             ax.plot(iterations, prob)
 
             # true analytic win probability
             if ax.is_first_col():
-                prob_to_cover = 1 - skellam.cdf(line, lambda1, lambda2)
+                prob_to_cover = skellam.sf(line, lambda1, lambda2)
                 ax.axhline(prob_to_cover, color='k')
             else:
-                prob_to_cover = 1 - poisson.cdf(line, lambda1 + lambda2)
+                prob_to_cover = poisson.sf(line, lambda1 + lambda2)
                 ax.axhline(prob_to_cover, color='k')
 
         # axes labels
@@ -398,6 +379,7 @@ def spread_convergence():
 
     set_tight(w_pad=.5)
 
+
 @plot
 def one_line():
     """
@@ -411,15 +393,15 @@ def one_line():
     today = datetime.today()
 
     melo_args = [
-        ('fermi', [-3.5, 3.5], league.diff, 'scored $-$ allowed'),
-        ('bose', [42.5], league.total, 'scored $+$ allowed'),
+        (False, [-3.5, 3.5], league.diff, 'scored $-$ allowed'),
+        (True, [42.5], league.total, 'scored $+$ allowed'),
     ]
 
-    for ax, (mode, lines, values, xlabel) in zip(axes, melo_args):
+    for ax, (commutes, lines, values, xlabel) in zip(axes, melo_args):
 
         melo = Melo(
             league.times, league.labels1, league.labels2, values,
-            lines=lines, mode=mode, k=1e-3
+            lines=lines, commutes=commutes, k=1e-3
         )
 
         ratings = melo.ratings
@@ -440,10 +422,10 @@ def one_line():
 
             # true analytic win probability
             if ax.is_first_col():
-                prob_to_cover = 1 - skellam.cdf(line, lambda1, lambda2)
+                prob_to_cover = skellam.sf(line, lambda1, lambda2)
                 ax.axhline(prob_to_cover, color='k')
             else:
-                prob_to_cover = 1 - poisson.cdf(line, lambda1 + lambda2)
+                prob_to_cover = poisson.sf(line, lambda1 + lambda2)
                 ax.axhline(prob_to_cover, color='k')
 
         # axes labels
@@ -474,19 +456,19 @@ def prior_rating():
     today = datetime.today()
 
     melo_args = [
-        ('fermi', np.arange(-29.5, 30.5), league.diff, 'scored $-$ allowed'),
-        ('bose', np.arange(10.5, 81.5), league.total, 'scored $+$ allowed'),
+        (False, np.arange(-29.5, 30.5), league.diff, 'scored $-$ allowed'),
+        (True, np.arange(10.5, 81.5), league.total, 'scored $+$ allowed'),
     ]
 
-    for (mode, lines, values, label) in melo_args:
+    for (commutes, lines, values, label) in melo_args:
 
         melo = Melo(
             league.times, league.labels1, league.labels2, values,
-            lines=lines, mode=mode, k=1e-3, bias=.5
+            lines=lines, commutes=commutes, k=1e-3, bias=.5
         )
 
         # constructed prior
-        prob_to_cover = melo.dist.cdf(2*melo.null_rtg)
+        prob_to_cover = melo.dist.cdf(2*melo.prior_rating)
         plt.plot(lines, prob_to_cover, 'o', label=label)
 
         # true prior
