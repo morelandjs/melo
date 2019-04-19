@@ -49,7 +49,7 @@ class Melo:
     }
 
     def __init__(self, times, labels1, labels2, values, lines=0, k=0,
-                 smooth=0, regress=lambda x: 0, regress_unit='year',
+                 sigma=0, regress=lambda x: 0, regress_unit='year',
                  dist='normal', bias=None, commutes=False):
 
         self.times = np.array(times, dtype='datetime64[s]', ndmin=1)
@@ -60,10 +60,10 @@ class Melo:
 
         self.k = k
 
-        if smooth < 0:
-            raise ValueError('smooth must be non-negative')
+        if sigma < 0:
+            raise ValueError('sigma must be non-negative')
 
-        self.smooth = max(smooth, 1e-12)
+        self.sigma = max(sigma, 1e-12)
 
         if not callable(regress):
             raise ValueError('regress must be univariate scalar function')
@@ -205,7 +205,7 @@ class Melo:
 
             # expected and observed comparison outcomes
             rating_diff = rating1 + self.conjugate(rating2) + bias
-            obs = self.dist.sf(self.lines, loc=value, scale=self.smooth)
+            obs = self.dist.sf(self.lines, loc=value, scale=self.sigma)
             pred = self.dist.cdf(rating_diff)
 
             # update cross entropy
