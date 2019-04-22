@@ -9,8 +9,7 @@ MELO
 Documentation
 -------------
 
-Work in progress...
-
+`moreland.dev/projects/melo <https://moreland.dev/projects/melo>`_
 
 Quick start
 -----------
