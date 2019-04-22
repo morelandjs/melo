@@ -3,7 +3,7 @@ melo
 *Margin-dependent Elo ratings and predictions*
 
 
-:Author: Scott Moreland
+:Author: J\. Scott Moreland
 :Language: Python
 :Source code: `github:morelandjs/melo <https://github.com/morelandjs/melo>`_
 
@@ -38,10 +38,6 @@ Basic usage:
 
    # ranked labels
    ranked_labels = melo.rank(time, statistic='mean')
-
-
-User guide
-----------
 
 .. toctree::
    :caption: User guide
