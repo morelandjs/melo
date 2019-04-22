@@ -92,7 +92,7 @@ class Melo:
         if commutes is True:
             self.conjugate = lambda x: x
         else:
-            if all(self.lines != -np.flip(self.lines)):
+            if all(self.lines != -self.lines[::-1]):
                 raise ValueError(
                     "lines must be symmetric when commutes is False"
                 )
