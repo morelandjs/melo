@@ -3,14 +3,26 @@
 
 import setuptools
 
-with open('README.rst') as f:
-    long_description = f.read()
+
+def version():
+    with open('melo/__init__.py', 'r') as f:
+        for l in f:
+            if l.startswith('__version__ = '):
+                return l.split("'")[1]
+
+    raise RuntimeError('unable to determine version')
+
+
+def long_description():
+    with open('README.rst') as f:
+        return f.read()
+
 
 setuptools.setup(
     name='melo',
-    version='1.0.0',
+    version=version(),
     description='Margin dependent Elo ratings and predictions.',
-    long_description=long_description,
+    long_description=long_description(),
     author='J. Scott Moreland',
     author_email='morelandjs@gmail.com',
     url='https://github.com/melo.git',

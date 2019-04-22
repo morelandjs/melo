@@ -83,9 +83,9 @@ class Melo:
             raise ValueError('no such distribution')
 
         if bias is None:
-            self.biases = np.zeros_like(values, dtype='float')
+            self.biases = np.zeros_like(self.values, dtype='float')
         elif np.isscalar(bias):
-            self.biases = np.full_like(values, bias, dtype='float')
+            self.biases = np.full_like(self.values, bias, dtype='float')
         else:
             self.biases = np.array(bias, dtype='float', ndmin=1)
 

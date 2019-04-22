@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from collections import OrderedDict
+from itertools import combinations
 import logging
 import os
 from pathlib import Path
@@ -143,6 +144,38 @@ class League:
 
 
 league = League(10**6)
+
+
+@plot
+def quickstart_example():
+    """
+    Create time series of comparison data by pairing and
+    substracting 100 different Poisson distributions
+
+    """
+    mu_values = np.random.randint(80, 110, 100)
+    mu1, mu2 = map(np.array, zip(*combinations(mu_values, 2)))
+    labels1, labels2 = [mu.astype(str) for mu in [mu1, mu2]]
+    spreads = skellam.rvs(mu1=mu1, mu2=mu2)
+    times = np.arange(spreads.size).astype('datetime64[s]')
+
+    # MELO class arguments (explained in docs)
+    lines = np.arange(-59.5, 60.5)
+    k = .15
+
+    # train the model on the list of comparisons
+    melo = Melo(times, labels1, labels2, spreads, lines=lines, k=k)
+
+    # predicted and true (analytic) comparison values
+    pred_times = np.repeat(melo.last_update, times.size)
+    pred = melo.mean(pred_times, labels1, labels2)
+    true = skellam.mean(mu1=mu1, mu2=mu2)
+
+    # plot predicted means versus true means
+    plt.scatter(pred, true)
+    plt.plot([-20, 20], [-20, 20], color='k')
+    plt.xlabel('predicted mean')
+    plt.ylabel('true mean')
 
 
 @plot

@@ -1,17 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from datetime import datetime, timedelta
-from nose.tools import  assert_almost_equal, assert_raises
-import string
+from nose.tools import assert_almost_equal, assert_raises
 
 import numpy as np
 from scipy.stats import norm
 
-#from ..melo import Melo
-from melo import Melo
-
-
-time = datetime.today()
+from ..melo import Melo
 
 
 def test_class_init():
@@ -20,6 +14,7 @@ def test_class_init():
 
     """
     # single entry
+    time = np.datetime64('now')
     label1 = 'alpha'
     label2 = 'beta'
     value = np.random.uniform(-10, 10)
@@ -28,22 +23,18 @@ def test_class_init():
     # construct class object
     melo = Melo(time, label1, label2, value, lines=lines)
 
-    # Fermi mode requires symmetric lines
-    assert_raises(ValueError, Melo, time, label1, label2, value, [-1, 2], 'Fermi')
-
-    # Only Fermi and Bose modes are defined
-    assert_raises(ValueError, Melo, time, label1, label2, value, [-1, 1], 'Other')
+    # assert commutes=False requires symmetric lines
+    assert_raises(ValueError, Melo, time, label1, label2, value, [-1, 2])
 
     # multiple entries
-    times = [time + timedelta(seconds=s) for s in range(100)]
-    labels1 = np.random.choice(list(string.ascii_lowercase), size=100)
-    labels2 = np.random.choice(list(string.ascii_lowercase), size=100)
+    times = np.arange(100).astype('datetime64[s]')
+    labels1 = np.repeat('alpha', 100)
+    labels2 = np.repeat('beta', 100)
     values = np.random.normal(0, 10, size=100)
-    lines = np.array(0)
 
     # randomize times
     np.random.shuffle(times)
-    melo = Melo(times, labels1, labels2, values, lines=lines)
+    melo = Melo(times, labels1, labels2, values, lines=0)
     comp = melo.comparisons
 
     # check comparison length
@@ -52,56 +43,54 @@ def test_class_init():
     # check that comparisons are sorted
     assert np.array_equal(np.sort(comp.time), comp.time)
 
-    # check oldest time
-    assert melo.oldest == time
-
-    # check that outcomes are correct
-    assert np.array_equal(comp.value > 0, comp.outcome)
+    # check times
+    assert melo.first_update == times.min()
+    assert melo.last_update == times.max()
 
 
-def test_null_rating():
+def test_prior_rating():
     """
-    Checking null (default) rating
+    Checking prior (default) rating
 
     """
-    # multiple
-    times = [time + timedelta(seconds=s) for s in range(100)]
-    labels1 = np.random.choice(list(string.ascii_lowercase), size=100)
-    labels2 = np.random.choice(list(string.ascii_lowercase), size=100)
-    lines = np.array(0)
+    times = np.arange(100).astype('datetime64[s]')
+    labels1 = np.repeat('alpha', 100)
+    labels2 = np.repeat('beta', 100)
 
     # test null rating for 50-50 outcome
     values = np.append(np.ones(50), -np.ones(50))
-    melo = Melo(times, labels1, labels2, values, lines=lines)
-    null_rtg = melo.null_rating(melo.comparisons.outcome)
-    assert_almost_equal(norm.cdf(2*null_rtg), .5)
+    melo = Melo(times, labels1, labels2, values, lines=0)
+    prob = norm.cdf(2*melo.prior_rating)[0]
+    assert_almost_equal(prob, .5)
 
     # test null rating for 10-90 outcome
     values = np.append(np.ones(10), -np.ones(90))
-    melo = Melo(times, labels1, labels2, values, lines=lines)
-    null_rtg = melo.null_rating(melo.comparisons.outcome)
-    assert_almost_equal(norm.cdf(2*null_rtg), .1)
+    melo = Melo(times, labels1, labels2, values, lines=0)
+    prob = norm.cdf(2*melo.prior_rating)[0]
+    assert_almost_equal(prob, .1)
 
 
-def test_regress():
+def test_evolve():
     """
     Checking rating regression
 
     """
-    label1 = 'alpha'
-    label2 = 'beta'
-    value = np.random.uniform(-10, 10)
-    lines = np.array(0)
+    decay_rate = np.random.rand()
 
-    melo = Melo(time, label1, label2, value, lines=lines,
-                decay=lambda t: .5 if t > timedelta(days=.5) else 1)
+    def regress(time):
+        return 1 - np.exp(-decay_rate*time)
 
-    melo.null_rtg = 0
-    rating = 1
+    melo = Melo(
+        np.datetime64('now'), 'alpha', 'beta', 0,
+        regress=regress, regress_unit='year'
+    )
 
-    for p in range(1, 5):
-        rating = melo.regress(rating, timedelta(days=1))
-        assert rating == .5**p
+    melo.prior_rating = 0
+
+    for years in range(4):
+        nsec = int(years*melo.seconds['year'])
+        seconds = np.timedelta64(nsec, 's')
+        assert melo.evolve(1, seconds) == 1 - regress(years)
 
 
 def test_query_rating():
@@ -110,18 +99,18 @@ def test_query_rating():
 
     """
     # single entry
+    time = np.datetime64('now')
     label1 = 'alpha'
     label2 = 'beta'
     value = np.random.uniform(-10, 10)
-    lines = np.array(0)
 
     # construct class object
-    melo = Melo(time, label1, label2, value, lines=lines)
+    melo = Melo(time, label1, label2, value, lines=0)
 
-    one_hour = timedelta(hours=1)
-    melo.ratings['alpha'] = np.array(
+    one_hour = np.timedelta64(1, 'h')
+    melo.ratings_history['alpha'] = np.rec.array(
         [(time - one_hour, 1), (time, 2), (time + one_hour, 3)],
-        dtype=[('time', 'M8[us]'), ('rating', 'f8')]
+        dtype=[('time', 'datetime64[s]'), ('rating', 'float', 1)]
     )
 
     rating = melo.query_rating(time, 'alpha')
@@ -137,24 +126,15 @@ def test_rate():
 
     """
     # alpha wins, beta loses
-    times = [time, time + timedelta(hours=1)]
-    labels1 = ['alpha', 'alpha']
-    labels2 = ['beta', 'beta']
+    times = np.arange(2).astype('datetime64[s]')
+    labels1 = np.repeat('alpha', 2)
+    labels2 = np.repeat('beta', 2)
     values = [1, -1]
-    lines = 0
 
     # instantiate ratings
-    melo = Melo(times, labels1, labels2, values, lines=lines, k=2)
-    null_rtg = melo.null_rating(melo.comparisons.outcome)
+    melo = Melo(times, labels1, labels2, values, k=2)
 
     # rating_change = k * (obs - prior) = 2 * (1 - .5)
-    assert melo.ratings['alpha']['rating'][0] == 1
-    assert melo.ratings['beta']['rating'][0] == -1
-
-
-def test_predict():
-    """
-    Checking comparison prediction function
-
-    """
-
+    rec = melo.ratings_history
+    assert rec['alpha'].rating[0] == 1
+    assert rec['beta'].rating[0] == -1
