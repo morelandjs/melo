@@ -21,30 +21,26 @@ Basic usage:
 
 .. code-block:: python
 
-   from datetime import timedelta
    import pkgutil
-
    import numpy as np
-
    from melo import Melo
-
 
    # the package comes pre-bundled with an example dataset
    pkgdata = pkgutil.get_data('melo', 'nfl_scores.dat').splitlines()
-   time, home, away, spread = zip(*[l.split() for l in pkgdata])
+   times, teams_home, teams_away, spreads = zip(*[l.split() for l in pkgdata])
 
    # specify values for the model training parameters
    nfl_spreads = Melo(
-       time, home, away, spread, lines=np.arange(-50.5, 51.5),
-       mode='Fermi', k=.245, bias=.166,
-       decay=lambda t: 1 if t < timedelta(weeks=20) else .597
+       times, teams_home, teams_away, spreads, commutes=False,
+       lines=np.arange(-50.5, 51.5), k=.245, bias=.166,
+       decay=lambda months: .413*(months > 3), regress_unit='month'
    )
 
-   # specify some 'current' time
-   current_time = nfl_spreads.comparisons['time'][-1]
+   # specify some comparison time
+   time = nfl_spreads.last_update
 
    # predict the mean outcome at that time
-   mean = nfl_spreads.mean(current_time, 'CLE', 'KC')
+   mean = nfl_spreads.mean(time, 'CLE', 'KC', bias=.166)
 
    # mean expected CLE vs KC point differential
    print('CLE VS KC: {}'.format(mean))
