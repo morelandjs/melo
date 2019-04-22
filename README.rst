@@ -33,7 +33,7 @@ Basic usage:
    nfl_spreads = Melo(
        times, teams_home, teams_away, spreads, commutes=False,
        lines=np.arange(-50.5, 51.5), k=.245, bias=.166,
-       decay=lambda months: .413*(months > 3), regress_unit='month'
+       regress=lambda months: .413*(months > 3), regress_unit='month'
    )
 
    # specify some comparison time
