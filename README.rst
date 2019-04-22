@@ -2,6 +2,7 @@ MELO
 ====
 
 *Margin-dependent Elo ratings and predictions model*
+[![Build Status](https://travis-ci.org/morelandjs/melo.svg?branch=master)](https://travis-ci.org/morelandjs/melo)
 
 Documentation
 -------------
