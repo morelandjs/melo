@@ -13,13 +13,14 @@ Documentation
 
 Quick start
 -----------
-Install::
+
+Requirements: Python 2.7 or 3.3+ with numpy_ and scipy_.
+
+Install the latest release with pip_::
 
    pip install melo
 
-Basic usage:
-
-.. code-block:: python
+Example usage::
 
    import pkgutil
    import numpy as np
@@ -33,7 +34,8 @@ Basic usage:
    nfl_spreads = Melo(
        times, teams_home, teams_away, spreads, commutes=False,
        lines=np.arange(-50.5, 51.5), k=.245, bias=.166,
-       regress=lambda months: .413*(months > 3), regress_unit='month'
+       regress=lambda months: .413 if months > 3 else 0,
+       regress_unit='month'
    )
 
    # specify some comparison time
@@ -44,3 +46,7 @@ Basic usage:
 
    # mean expected CLE vs KC point differential
    print('CLE VS KC: {}'.format(mean))
+
+.. _numpy: http://www.numpy.org
+.. _pip: https://pip.pypa.io
+.. _scipy: https://www.scipy.org
