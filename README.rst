@@ -38,7 +38,7 @@ Example usage::
        regress_unit='month'
    )
 
-   # specify some comparison time
+   # specify a comparison time
    time = nfl_spreads.last_update
 
    # predict the mean outcome at that time
