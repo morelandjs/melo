@@ -1,7 +1,10 @@
 Tests
 =====
 
-`melo` has a standard set of unit tests, whose current CI status is:
+``melo`` has a standard set of unit tests, whose current CI status is:
+
+.. image:: https://travis-ci.org/morelandjs/melo.svg?branch=master
+    :target: https://travis-ci.org/morelandjs/melo
 
 The unit tests do not check the physical accuracy of the model which is difficult to verify automatically.
 Rather, this page shows a number of visual tests which can be used to access the model manually.

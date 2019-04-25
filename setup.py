@@ -28,6 +28,6 @@ setuptools.setup(
     url='https://github.com/melo.git',
     license='MIT',
     packages=['melo'],
-    package_data={'melo': ['nfl_scores.dat']},
+    package_data={'melo': ['nfl.dat']},
     install_requires=['numpy', 'scipy >= 0.18.0'],
 )

@@ -1,13 +1,13 @@
-Realistic example
-=================
+.. _example:
 
-The ``melo`` package comes pre-bundled with a text file containing the home spread (home score minus away score) for all NFL games 2008–2018.
-Let's load this dataset and see how to use the model to predict the spread of "future" games using the historical spread data.
+Example
+=======
 
-First, let's import ``Melo`` and load the ``nfl_scores.dat`` package data.
-Let's also load numpy_ for convenience.
+The ``melo`` package comes pre-bundled with a text file containing the final score of all regular season NFL games 2009–2018.
+Let's load this dataset and use the model to predict the point spread and point total of "future" games using the historical game data.
 
-.. code-block:: python
+First, let's import ``Melo`` and load the ``nfl.dat`` package data.
+Let's also load numpy_ for convenience. ::
 
    import pkgutil
    import numpy as np
@@ -15,45 +15,56 @@ Let's also load numpy_ for convenience.
    from melo import Melo
 
    # the package comes pre-bundled with an example NFL dataset
-   pkgdata = pkgutil.get_data('melo', 'nfl_scores.dat').splitlines()
+   pkgdata = pkgutil.get_data('melo', 'nfl.dat').splitlines()
 
-The ``nfl_scores.dat`` package data looks like this:
+The ``nfl.dat`` package data looks like this:
 
 .. code-block:: text
 
-   2009-09-10 PIT TEN   3
-   2009-09-13 ARI  SF  -4
-   2009-09-13 ATL MIA  12
-   2009-09-13 BAL  KC  14
-   2009-09-13 CAR PHI -28
-   2009-09-13 CIN DEN  -5
-   2009-09-13 CLE MIN -14
-   2009-09-13  GB CHI   6
-   2009-09-13 HOU NYJ -17
-   2009-09-13 IND JAC   2
-   2009-09-13  NO DET  18
-   2009-09-13 NYG WAS   6
+   # date, home, score, away, score
+   2009-09-10 PIT 13 TEN 10
+   2009-09-13 ATL 19 MIA  7
+   2009-09-13 BAL 38 KC  24
+   2009-09-13 CAR 10 PHI 38
+   2009-09-13 CIN  7 DEN 12
+   2009-09-13 CLE 20 MIN 34
+   2009-09-13 HOU  7 NYJ 24
+   2009-09-13 IND 14 JAC 12
+   2009-09-13 NO  45 DET 27
+   2009-09-13 TB  21 DAL 34
+   2009-09-13 ARI 16 SF  20
+   2009-09-13 NYG 23 WAS 17
    ...
 
-After we've loaded the package data, we'll need to split the game data into separate columns.
+After we've loaded the package data, we'll need to split the game data into separate columns. ::
 
-.. code-block:: python
+   dates, teams_home, scores_home, teams_away, scores_away  = zip(*[l.split() for l in pkgdata[1:]])
 
-   times, teams_home, teams_away, spreads = zip(*[l.split() for l in pkgdata])
+Point spread predictions
+------------------------
 
-Next, we need to specify a one-dimensional array of ``lines`` which define the binary over/under outcomes. The vast majority of NFL spreads fall between -50.5 and 50.5 points, so I'll partition the spreads within this range. Here I choose half point lines so there is no ambiguity as to whether a comparison falls above or below a given threshold.
+Let's start by analyzing the home team point spreads. ::
 
-.. code-block:: python
+   spreads = [int(a) - int(b) for a, b in zip(scores_home, scores_away)]
 
-   lines = np.arange(-50.5, 51.5)
+We'll also need to specify a one-dimensional array ``lines`` which determines the paired comparisons.
+The vast majority of NFL spreads fall between -50.5 and 50.5 points, so let's partition the spreads within this range.
+Here I choose half point lines so there is no ambiguity as to whether a comparison falls above or below a given threshold. ::
 
-Much like traditional Elo ratings, the ``melo`` model includes a hyperparameter ``k`` which controls how fast the ratings update. Prior experience indicates that ``k=0.245`` is a good choice for NFL games. Generally speaking, this hyperparameter must be tuned for each use case.
+   spread_lines = np.arange(-50.5, 51.5)
 
-The model also includes a ``bias`` term which can either be a scalar (same for all comparisons) or a vector (specified for each comparison). For simplicity, let's ignore the occasional NFL game on a neutral field and choose a constant home field advantage ``bias = 0.166`` which handicaps ``teams_away``.
+Much like traditional Elo ratings, the ``melo`` model includes a hyperparameter ``k`` which controls how fast the ratings update.
+Prior experience indicates that ``k=0.245`` is a good choice for NFL games.
+Generally speaking, this hyperparameter must be tuned for each use case.
 
-Optionally, we can also specify a function which describes how much the ratings should regress to the mean as a function of elapsed time between games. Here I regress the ratings to the mean by a fixed fraction each off season. To accomplish this, I create a function
+The model also includes a ``bias`` parameter that can be used to implement transient effects such as home field advantage.
+It can be a scalar (same for all comparisons) or a vector (specified for each comparison).
+For simplicity, let's ignore the occasional NFL game on a neutral field and choose a constant home field advantage. ::
 
-.. code-block:: python
+   hfa = 0.166
+
+Additionally, we can also specify a function which describes how much the ratings should regress to the mean as a function of elapsed time between games.
+Here I regress the ratings to the mean by a fixed fraction each off season. To accomplish this, I create a function ::
 
    def regress(dormant_months):
       """
@@ -63,44 +74,89 @@ Optionally, we can also specify a function which describes how much the ratings 
       """
       return .4 if dormant_months > 3 else 0
 
-and supply this function to the ``Melo`` class using ``regress_period='month'`` to set the units of the decay function. The resulting constructor is thus:
+and supply this function to the ``Melo`` constructor using ``regress_unit='month'`` to set the units of the decay function.
 
-.. code-block:: python
+Assembling the previous components, the model is trained as follows: ::
 
    nfl_spreads = Melo(
-       times, teams_home, teams_away, spreads, lines=lines,
-       k=.245, bias=.166, regress=regress, regress_period='month',
-       commutes=False
+       dates, teams_home, teams_away, spreads, lines=spread_lines,
+       k=.245, bias=hfa, regress=regress,
+       regress_unit='month', commutes=False
    )
 
 .. note::
 
    Spread comparisons are point differences which anti-commute so I must set ``commutes=False`` to ensure the appropriate behavior of the model under interchange of home and away team labels.
 
-Constructing the ``Melo`` class object also trains the model, so it will take a few seconds to load. Once the object is created, you can easily generate predictions by supplying a new comparison. As before, I use ``bias=0.166`` to account for home field advantage.
+   Additionally, when ``commutes=False``, ``lines`` *must* be symmetric, i.e\. ``lines == lines[::-1]``.
 
-.. code-block:: python
+Constructing the ``Melo`` class object also trains the model, so it will take a few seconds to load.
+Once the object is created, one can easily generate predictions by calling its various instance methods: ::
 
    # time one day after the last model update
    time = nfl_spreads.last_update + np.timedelta64(1, 'D')
 
-   # predict the mean outcome at that time
-   mean = nfl_spreads.mean(time, 'CLE', 'KC', bias=.166)
+   # predict the mean outcome at 'time'
+   nfl_spreads.mean(time, 'CLE', 'KC', bias=hfa)
 
-   # predict the median outcome at that time
-   median = nfl_spreads.median(time, 'CLE', 'KC', bias=.166)
+   # predict the median outcome at 'time'
+   nfl_spreads.median(time, 'CLE', 'KC', bias=hfa)
 
-   # predict the interquartile range at that time
-   low, median, high = nfl_spreads.quantile(time, 'CLE', 'KC', q=[.25, .5, .75], bias=.166)
+   # predict the interquartile range at 'time'
+   nfl_spreads.quantile(time, 'CLE', 'KC', q=[.25, .5, .75], bias=hfa)
 
-   # predict the probability that CLE wins
-   win_prob =  nfl_spreads.prob(time, 'CLE', 'KC', bias=.166)
+   # predict the win probability at 'time'
+   nfl_spreads.probability(time, 'CLE', 'KC', bias=hfa)
 
-Additionally, the model can rank teams by their expected performance against a league average opponent on a neutral field. Ranking options are ``order=median``, ``mean``, and ``win``:
+   # generate prediction samples at 'time'
+   nfl_spreads.sample(time, 'CLE', 'KC', bias=hfa, size=100)
 
-.. code-block:: python
+.. note::
+
+   Here I've used ``bias=hfa`` to apply home field advantage, but I could just as easily set ``bias=0`` to generate predictions for a neutral field.
+
+Furthermore, the model can rank teams by their expected performance against a league average opponent on a neutral field.
+Let's rank the NFL teams at the end of the 2018–2019 season according to their expected mean point spread against a league average opponent: ::
 
    # rank teams by expected median spread against average team
-   ranked_list = nfl_spreads.rank(time, order='median')
+   nfl_spreads.rank(time, order='mean')
+
+Or alternatively, we can rank teams by their expected win probability against a league average opponent: ::
+
+   # rank teams by expected win prob against average team
+   nfl_spreads.rank(time, order='win')
+
+Point total predictions
+-----------------------
+
+Everything demonstrated so far can also be applied to point total comparisons ::
+
+   totals = [int(a) + int(b) for a, b in zip(scores_home, scores_away)]
+
+with a few small changes.
+
+First, we'll need to change our ``lines`` so they cover the expected range of point total comparisons: ::
+
+   total_lines = np.arange(-0.5, 105.5)
+
+Next, we'll need to set ``commutes=True`` since the point total comparisons are invariant under label interchange.
+
+Finally, we'll want to provide somewhat different inputs for the ``k``, ``bias``, and ``regress`` arguments.
+Putting the pieces together: ::
+
+   nfl_totals = Melo(
+       dates, teams_home, teams_away, totals, lines=total_lines,
+       k=.245, bias=0, regress=lambda months: .3 if months > 3 else 0,
+       regress_unit='month', commutes=True
+   )
+
+And voila! We can easily predict the outcome of a future point total comparison: ::
+
+   # time one day after the last model update
+   time = nfl_totals.last_update + np.timedelta64(1, 'D')
+
+   # predict the mean outcome at 'time'
+   nfl_totals.mean(time, 'CLE', 'KC')
+
 
 .. _numpy: http://www.numpy.org
