@@ -23,6 +23,7 @@ exclude_patterns = ['_build']
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.mathjax',
+    'sphinx.ext.napoleon',
 ]
 
 default_role = 'math'

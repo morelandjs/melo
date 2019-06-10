@@ -1,4 +1,6 @@
-# -*- coding: utf-8 -*-
+# MELO: Margin-dependent Elo ratings and predictions
+# Copyright 2019 J. Scott Moreland
+# MIT License
 
 from __future__ import division
 
@@ -8,28 +10,62 @@ from .dist import normal, logistic
 
 
 class Melo:
-    """
-    Margin-dependent Elo (MELO)
+    r"""
+    Margin-dependent Elo (MELO) class constructor
 
-    **Required parameters**
+    Parameters
+    ----------
+    k : float
+        Prefactor multiplying each rating update
+        :math:`\Delta R = k\, (P_\text{obs} - P_\text{pred})`.
 
-    These must be array_like objects of equal length.
+    lines : array_like of float, optional
+        Handicap line or sequence of lines used to construct the vector of
+        binary comparisons
 
-    - *times*   -- datetime, comparison time stamp
-    - *labels1* -- string, first entity's label name
-    - *labels2* -- string, second entity's label name
-    - *values*  -- float, comparison value
+        :math:`\mathcal{C}(\text{label1}, \text{label2}, \text{value}) \equiv
+        (\text{value} > \text{lines})`.
 
-    **Optional parameters**
+        The default setting, lines=0, deploys the traditional
+        Elo rating system.
 
-    - *lines*    -- array_like, comparison threshold line(s)
-    - *k*        -- float, rating update factor
-    - *bias*     -- float, bias (shift) ratings toward either label
-    - *decay*    -- callable function of elapsed time,
-                    regresses ratings toward the mean
-    - *commutes* -- bool, behavior of values under label interchange
+    sigma : float, optional
+        Smearing parameter which gives the observed probability,
 
-    See online documentation <placeholder> for usage details.
+        :math:`P_\mathrm{obs} = 1` if value > line else 0,
+
+        a soft edge of width sigma.
+        A small sigma value helps to regulate and smooth the predicted
+        probability distributions.
+
+    regress : function, optional
+        Univariate scalar function regress = f(time) which describes how
+        ratings should regress to the mean as a function of elapsed time.
+        When this function value is zero, the rating is unaltered, and when
+        it is unity, the rating is fully regressed to the mean.
+        The time units are set by the parameter regress_units (see below).
+
+    regress_unit : string, optional
+        Units of elapsed time for the regress function.
+        Options are: year (default), month, week, day, hour, minute, second,
+        millisecond, microsecond, nanosecond, picosecond, femtosecond, and
+        attosecond.
+
+    dist : string, optional
+        Probability distribution, "normal" (default) or "logistic", which
+        converts rating differences into probabilities:
+
+        :math:`P(\text{value} > \text{line}) =
+        \text{dist.cdf}(\Delta R(\text{line}))`
+
+    commutes : bool, optional
+        If this is set to True, the comparison values are assumed to be
+        symmetric under label interchange.
+        Otherwise the values are assumed to be *anti*-symmetric under label
+        interchange.
+
+        For example, point-spreads should use commutes=False and point-totals
+        commutes=True.
 
     """
     seconds = {
@@ -43,27 +79,25 @@ class Melo:
         'millisecond': 1e-3,
         'microsecond': 1e-6,
         'nanosecond': 1e-9,
-        'picsecond': 1e-12,
-        'femptosecond': 1e-15,
+        'picosecond': 1e-12,
+        'femtosecond': 1e-15,
         'attosecond': 1e-18,
     }
 
-    def __init__(self, times, labels1, labels2, values, lines=0, k=0,
-                 sigma=0, regress=lambda x: 0, regress_unit='year',
-                 dist='normal', bias=None, commutes=False):
+    def __init__(self, k, lines=0, sigma=0, regress=lambda x: 0,
+                 regress_unit='year', dist='normal', commutes=False):
 
-        self.times = np.array(times, dtype='datetime64[s]', ndmin=1)
-        self.labels1 = np.array(labels1, dtype='str', ndmin=1)
-        self.labels2 = np.array(labels2, dtype='str', ndmin=1)
-        self.values = np.array(values, dtype='float', ndmin=1)
-        self.lines = np.array(lines, dtype='float', ndmin=1)
+        if k < 0 or not np.isscalar(k):
+            raise ValueError('k must be a non-negative real number')
 
         self.k = k
 
-        if sigma < 0:
-            raise ValueError('sigma must be non-negative')
+        self.lines = np.array(lines, dtype='float', ndmin=1)
 
-        self.sigma = max(sigma, 1e-12)
+        if sigma < 0 or not np.isscalar(sigma):
+            raise ValueError('sigma must be a non-negative real number')
+
+        self.sigma = np.float(max(sigma, 1e-12))
 
         if not callable(regress):
             raise ValueError('regress must be univariate scalar function')
@@ -82,13 +116,6 @@ class Melo:
         else:
             raise ValueError('no such distribution')
 
-        if bias is None:
-            self.biases = np.zeros_like(self.values, dtype='float')
-        elif np.isscalar(bias):
-            self.biases = np.full_like(self.values, bias, dtype='float')
-        else:
-            self.biases = np.array(bias, dtype='float', ndmin=1)
-
         if commutes is True:
             self.conjugate = lambda x: x
         else:
@@ -98,13 +125,56 @@ class Melo:
                 )
             self.conjugate = lambda x: -x[::-1]
 
-        self.comparisons = np.sort(
+        self.loss = 0
+        self.first_update = None
+        self.last_update = None
+        self.labels = None
+        self.training_inputs = None
+        self.prior_rating = None
+        self.ratings_history = None
+
+    def _read_training_inputs(self, times, labels1, labels2, values, biases):
+        """
+        Internal function: Read training inputs and initialize class variables
+
+        Parameters
+        ----------
+        times : array_like of np.datetime64
+            List of datetimes.
+
+        labels1 : array_like of string
+            List of first entity labels.
+
+        labels2 : array_like of string
+            List of second entity labels.
+
+        values : array_like of float
+            List of comparison values.
+
+        biases : array_like of float
+            Single bias number or list of bias numbers which match the
+            comparison inputs.
+            Default is 0, in which case no bias is used.
+
+
+        """
+        times = np.array(times, dtype='datetime64[s]', ndmin=1)
+        labels1 = np.array(labels1, dtype='str', ndmin=1)
+        labels2 = np.array(labels2, dtype='str', ndmin=1)
+        values = np.array(values, dtype='float', ndmin=1)
+        biases = np.array(biases, dtype='float', ndmin=1) * np.ones_like(times)
+
+        self.first_update = times.min()
+        self.last_update = times.max()
+        self.labels = np.union1d(labels1, labels2)
+
+        self.training_inputs = np.sort(
             np.rec.fromarrays([
-                self.times,
-                self.labels1,
-                self.labels2,
-                self.values,
-                self.biases,
+                times,
+                labels1,
+                labels2,
+                values,
+                biases,
             ], names=(
                 'time',
                 'label1',
@@ -113,30 +183,29 @@ class Melo:
                 'bias',
             )), order='time', axis=0)
 
-        self.labels = np.union1d(self.labels1, self.labels2)
-        self.first_update = self.comparisons.time.min()
-        self.last_update = self.comparisons.time.max()
-        self.prior_rating = self.infer_prior_rating(self.values, self.lines)
-        self.entropy, self.ratings_history = self.calculate_ratings()
-
-    def infer_prior_rating(self, values, lines):
-        """
-        Infer minimim bias prior rating from the training data.
-
-        """
-        prob = np.mean(values[:, np.newaxis] - lines > 0, axis=0)
+        prior_prob = np.mean(values[:, np.newaxis] - self.lines > 0, axis=0)
 
         TINY = 1e-6
-        prob = np.clip(prob, TINY, 1 - TINY)
+        prob = np.clip(prior_prob, TINY, 1 - TINY)
 
-        return -0.5*self.dist.isf(prob)
+        self.prior_rating = -0.5*self.dist.isf(prob)
 
     def evolve(self, rating, time_delta):
         """
         Evolve rating to a future time and regress to the mean.
 
-        This function applies the user defined function 'regress'
-        which defaults to zero (no regression).
+        Parameters
+        ----------
+        rating : ndarray of float
+            Array of label ratings.
+
+        time_delta : np.timedelta64
+            Elapsed time since the label's ratings were last updated.
+
+        Returns
+        -------
+        rating : ndarray of float
+            Label ratings after regression to the mean.
 
         """
         elapsed_seconds = time_delta / np.timedelta64(1, 's')
@@ -150,7 +219,21 @@ class Melo:
         Query label's rating at the specified 'time' accounting
         for rating regression.
 
-        Returns prior_rating if label == average.
+        Parameters
+        ----------
+        time : np.datetime64
+            Comparison datetime
+
+        label : string
+            Comparison entity label. If label == average, then the average
+            rating of all labels is returned.
+
+        Returns
+        -------
+        rating : ndarray of float
+            Applies the user specified rating regression function to regress
+            ratings to the mean as necessary and returns the ratings for the
+            given label at the specified time.
 
         """
         time = np.datetime64(time, 's')
@@ -169,15 +252,40 @@ class Melo:
 
         return self.prior_rating
 
-    def calculate_ratings(self):
+    def fit(self, times, labels1, labels2, values, biases=0):
         """
-        Calculate each label's Elo ratings at each of the specified line(s).
-        This function returns a dictionary mapping each label to a time-sorted
-        structured record array of (time, rating) entries.
+        This function is used to calibrate the model on the training inputs.
+        It computes and records each label's Elo ratings at the line(s) given
+        in the class constructor.
+        The function returns the predictions' total cross entropy loss.
+
+        Parameters
+        ----------
+        times : array_like of np.datetime64
+            List of datetimes.
+
+        labels1 : array_like of string
+            List of first entity labels.
+
+        labels2 : array_like of string
+            List of second entity labels.
+
+        biases : array_like of float, optional
+            Single bias number or list of bias numbers which match the
+            comparison inputs.
+            Default is 0, in which case no bias is used.
+
+        Returns
+        -------
+        loss : float
+            Cross entropy loss for the model predictions.
 
         """
+        # read training inputs and initialize class variables
+        self._read_training_inputs(times, labels1, labels2, values, biases)
+
         # initialize ratings history for each label
-        ratings_history = {label: [] for label in self.labels}
+        self.ratings_history = {label: [] for label in self.labels}
 
         # temporary variable to store each label's last rating
         prev_update = {
@@ -185,14 +293,11 @@ class Melo:
             for label in self.labels
         }
 
-        entropy = 0
-
-        # prediction cross entropy
-        def cross_entropy(pred, obs):
-            return -(obs*np.log(pred) + (1 - obs)*np.log(1 - pred)).sum()
+        # calibration loss
+        loss = 0
 
         # loop over all binary comparisons
-        for (time, label1, label2, value, bias) in self.comparisons:
+        for (time, label1, label2, value, bias) in self.training_inputs:
 
             # query ratings and evolve to the current time
             rating1, rating2 = [
@@ -209,7 +314,7 @@ class Melo:
             pred = self.dist.cdf(rating_diff)
 
             # update cross entropy
-            entropy += cross_entropy(pred, obs)
+            loss += -(obs*np.log(pred) + (1 - obs)*np.log(1 - pred)).sum()
 
             # update current ratings
             rating_change = self.k * (obs - pred)
@@ -218,26 +323,43 @@ class Melo:
 
             # record current ratings
             for label, rating in [(label1, rating1), (label2, rating2)]:
-                ratings_history[label].append((time, rating))
+                self.ratings_history[label].append((time, rating))
                 prev_update[label] = (time, rating)
 
         # convert ratings history to a structured rec.array
-        for label in ratings_history.keys():
-            ratings_history[label] = np.rec.array(
-                ratings_history[label], dtype=[
+        for label in self.ratings_history.keys():
+            self.ratings_history[label] = np.rec.array(
+                self.ratings_history[label], dtype=[
                     ('time', 'datetime64[s]'),
                     ('rating', 'float', self.lines.size)
                 ]
             )
 
-        entropy /= (self.lines.size * np.size(self.comparisons, axis=0))
+        self.loss = loss
 
-        return entropy, ratings_history
+        return loss
 
     def _predict(self, time, label1, label2, bias=0):
         """
-        Predict the probability that a comparison between label1 and label2
-        covers every possible value of the line (internal function).
+        Internal function: Predict the survival function probability
+        distribution that a comparison between label1 and label2 covers
+        each value of the line.
+
+        Parameters
+        ----------
+        time : np.datetime64
+            Comparison datetime.
+
+        label1 : string
+            Comparison first entity label.
+
+        label2 : string
+            Comparison second entity label.
+
+        bias : float, optional
+            Bias number which adds a constant offset to the ratings.
+            Positive bias factors favor label1.
+            Default is 0, i.e. no bias.
 
         """
         rating1 = self.query_rating(time, label1)
@@ -247,21 +369,48 @@ class Melo:
 
         return self.lines, self.dist.cdf(rating_diff)
 
-    def probability(self, times, labels1, labels2, bias=0, lines=0):
-        """
-        Predict the probabilities that a comparison between label1 and label2
-        covers each specified line.
+    def probability(self, times, labels1, labels2, biases=0, lines=0):
+        r"""
+        Predict the survival function probability
+        .. math:: P(\text{value} > \text{lines})
+        for the specified comparison(s).
+
+        Parameters
+        ----------
+        times : array_like of np.datetime64
+            List of datetimes.
+
+        labels1 : array_like of string
+            List of first entity labels.
+
+        labels2 : array_like of string
+            List of second entity labels.
+
+        biases : array_like of float, optional
+            Single bias number or list of bias numbers which match the
+            comparison inputs.
+            Default is 0, in which case no bias is used.
+
+        lines : array_like of float, optional
+            Line or sequence of lines used to estimate the comparison
+            distribution.
+            Default is lines=0, in which case the model predicts the
+            probability that value > 0.
+
+        Returns
+        -------
+        probability : scalar or array_like of float
+            If a single comparison is given and a single line is specified,
+            this function returns a scalar.
+            If multiple comparisons or multiple lines are given, this function
+            returns an ndarray.
 
         """
         times = np.array(times, dtype='datetime64[s]', ndmin=1)
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
+        biases = np.array(biases, dtype='float', ndmin=1) * np.ones_like(times)
         lines = np.array(lines, dtype='float', ndmin=1)
-
-        if np.isscalar(bias):
-            biases = np.full_like(times, bias, dtype='float')
-        else:
-            biases = np.array(bias, dtype='float', ndmin=1)
 
         probabilities = []
 
@@ -272,19 +421,44 @@ class Melo:
 
         return np.squeeze(probabilities)
 
-    def percentile(self, times, labels1, labels2, bias=0, p=50):
+    def percentile(self, times, labels1, labels2, biases=0, p=50):
         """
-        Predict the percentiles for a comparison between label1 and label2.
+        Predict the p-th percentile for the specified comparison(s).
+
+        Parameters
+        -----------
+        times : array_like of np.datetime64
+            List of datetimes.
+
+        labels1 : array_like of string
+            List of first entity labels.
+
+        labels2 : array_like of string
+            List of second entity labels.
+
+        biases : array_like of float, optional
+            Single bias number or list of bias numbers which match the
+            comparison inputs.
+            Default is 0, in which case no bias is used.
+
+        p : array_like of float, optional
+            Percentile or sequence of percentiles to compute, which must be
+            between 0 and 100 inclusive.
+            Default is p=50, which computes the median.
+
+        Returns
+        -------
+        percentile : scalar or ndarray of float
+            If one comparison is given, and p is a single percentile,
+            then the result is a scalar.
+            If multiple comparisons or multiple percentiles are given, the
+            result is an ndarray.
 
         """
         times = np.array(times, dtype='datetime64[s]', ndmin=1)
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
-
-        if np.isscalar(bias):
-            biases = np.full_like(times, bias, dtype='float')
-        else:
-            biases = np.array(bias, dtype='float', ndmin=1)
+        biases = np.array(biases, dtype='float', ndmin=1) * np.ones_like(times)
 
         p = np.true_divide(p, 100.0)
 
@@ -301,19 +475,44 @@ class Melo:
 
         return np.squeeze(percentiles)
 
-    def quantile(self, times, labels1, labels2, bias=0, q=.5):
+    def quantile(self, times, labels1, labels2, biases=0, q=.5):
         """
-        Predict the quantiles for a comparison between label1 and label2.
+        Predict the q-th quantile for the specified comparison(s).
+
+        Parameters
+        -----------
+        times : array_like of np.datetime64
+            List of datetimes.
+
+        labels1 : array_like of string
+            List of first entity labels.
+
+        labels2 : array_like of string
+            List of second entity labels.
+
+        biases : array_like of float, optional
+            Single bias number or list of bias numbers which match the
+            comparison inputs.
+            Default is 0, in which case no bias is used.
+
+        q : array_like of float, optional
+            Quantile or sequence of quantiles to compute, which must be
+            between 0 and 1 inclusive.
+            Default is q=0.5, which computes the median.
+
+        Returns
+        -------
+        quantile : scalar or ndarray of float
+            If one comparison is given, and q is a single quantiles,
+            then the result is a scalar.
+            If multiple comparisons or multiple quantiles are given, the
+            result is an ndarray.
 
         """
         times = np.array(times, dtype='datetime64[s]', ndmin=1)
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
-
-        if np.isscalar(bias):
-            biases = np.full_like(times, bias, dtype='float')
-        else:
-            biases = np.array(bias, dtype='float', ndmin=1)
+        biases = np.array(biases, dtype='float', ndmin=1) * np.ones_like(times)
 
         q = np.asarray(q)
 
@@ -330,25 +529,37 @@ class Melo:
 
         return np.squeeze(quantiles)
 
-    def mean(self, times, labels1, labels2, bias=0):
+    def mean(self, times, labels1, labels2, biases=0):
         """
-        Predict the mean value for a comparison between label1 and label2.
+        Predict the mean for the specified comparison(s).
 
-        Calculates the mean of the cumulative distribution function F(x)
-        using integration by parts:
+        Parameters
+        -----------
+        times : array_like of np.datetime64
+            List of datetimes.
 
-        E(x) = \\int x P(x) dx
-             = x F(x) | - \\int F(x) dx
+        labels1 : array_like of string
+            List of first entity labels.
+
+        labels2 : array_like of string
+            List of second entity labels.
+
+        biases : array_like of float, optional
+            Single bias number or list of bias numbers which match the
+            comparison inputs.
+            Default is 0, in which case no bias is used.
+
+        Returns
+        -------
+        mean : scalar or ndarray of float
+            If one comparison is given, then the result is a scalar.
+            If multiple comparisons are given, then the result is an ndarray.
 
         """
         times = np.array(times, dtype='datetime64[s]', ndmin=1)
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
-
-        if np.isscalar(bias):
-            biases = np.full_like(times, bias, dtype='float')
-        else:
-            biases = np.array(bias, dtype='float', ndmin=1)
+        biases = np.array(biases, dtype='float', ndmin=1) * np.ones_like(times)
 
         means = []
 
@@ -359,19 +570,37 @@ class Melo:
 
         return np.squeeze(means)
 
-    def median(self, times, labels1, labels2, bias=0):
+    def median(self, times, labels1, labels2, biases=0):
         """
-        Predict the median value for a comparison between label1 and label2.
+        Predict the median for the specified comparison(s).
+
+        Parameters
+        -----------
+        times : array_like of np.datetime64
+            List of datetimes.
+
+        labels1 : array_like of string
+            List of first entity labels.
+
+        labels2 : array_like of string
+            List of second entity labels.
+
+        biases : array_like of float, optional
+            Single bias number or list of bias numbers which match the
+            comparison inputs.
+            Default is 0, in which case no bias is used.
+
+        Returns
+        -------
+        median : scalar or ndarray of float
+            If one comparison is given, then the result is a scalar.
+            If multiple comparisons are given, then the result is an ndarray.
 
         """
         times = np.array(times, dtype='datetime64[s]', ndmin=1)
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
-
-        if np.isscalar(bias):
-            biases = np.full_like(times, bias, dtype='float')
-        else:
-            biases = np.array(bias, dtype='float', ndmin=1)
+        biases = np.array(biases, dtype='float', ndmin=1) * np.ones_like(times)
 
         medians = []
 
@@ -381,27 +610,41 @@ class Melo:
 
         return np.squeeze(medians)
 
-    def residuals(self, predict='mean', standardize=False):
+    def residuals(self, statistic='mean', standardize=False):
         """
-        Returns an array of model validation residuals.
+        Prediction residuals (or Z-scores if standardize is True) for all
+        comparisons in the training data.
+        The Z-scores should sample a unit normal distribution.
 
-        if standardize == False:
-            residual = y_pred - y_obs
+        Parameters
+        ----------
+        statistic : string, optional
+            Type of prediction statistic.
+            Options are 'mean' (default) or 'median'.
 
-        if standardize == True:
-            residual = (y_pred - y_obs) / sigma_pred.
+        standardize : bool, optional
+            If standardize is True, divides prediction residuals by their
+            one-sigma prediction uncertainty.
+            Default value is False.
+
+        Returns
+        -------
+        residuals : ndarray of float
+            The residuals for each comparison in the training data.
+            The residuals are time ordered, and may not appear in the same
+            order as originally given.
 
         """
-        if predict == 'mean':
+        if statistic == 'mean':
             func = self.mean
-        elif predict == 'median':
+        elif statistic == 'median':
             func = self.median
         else:
             raise ValueError("predict options are 'mean' and 'median'")
 
         residuals = []
 
-        for (time, label1, label2, obs, bias) in self.comparisons:
+        for (time, label1, label2, obs, bias) in self.training_inputs:
 
             pred = func(time, label1, label2, bias=bias)
             residual = pred - obs
@@ -420,12 +663,20 @@ class Melo:
 
     def quantiles(self):
         """
-        Returns an array of model validation quantiles.
+        Prediction quantiles for all comparisons in the training data.
+        The quantiles should sample a uniform distribution from 0 to 1.
+
+        Returns
+        -------
+        quantiles : ndarray of float
+            The quantiles for each comparison in the training data.
+            The quantiles are time ordered, and may not appear in the same
+            order as originally given.
 
         """
         quantiles = []
 
-        for (time, label1, label2, obs, bias) in self.comparisons:
+        for (time, label1, label2, obs, bias) in self.training_inputs:
 
             quantile = self.probability(
                 time, label1, label2, lines=obs, bias=bias
@@ -435,17 +686,32 @@ class Melo:
 
         return np.array(quantiles)
 
-    def rank(self, time, order='mean'):
+    def rank(self, time, statistic='mean'):
         """
-        Ranks labels according to the specified order parameter.
-        Returns a rank sorted list of (label, rank) pairs.
+        Ranks labels by comparing each label to the average label using
+        the specified summary statistic.
+
+        Parameters
+        ----------
+        time : np.datetime64
+            The time at which the ranking should be computed.
+
+        statistic : string, optional
+            Determines the binary comparison ranking statistic.
+            Options are 'mean' (default), 'median', or 'win'.
+
+        Returns
+        -------
+        label rankings : list of tuples
+            Returns a rank sorted list of (label, rank) pairs, where rank is
+            the comparison value of the specified summary statistic.
 
         """
-        if order == 'mean':
+        if statistic == 'mean':
             func = self.mean
-        elif order == 'median':
+        elif statistic == 'median':
             func = self.median
-        elif order == 'win':
+        elif statistic == 'win':
             func = self.probability
         else:
             raise ValueError('no such order parameter')
@@ -457,19 +723,36 @@ class Melo:
 
         return sorted(ranked_list, key=lambda v: v[1], reverse=True)
 
-    def sample(self, times, labels1, labels2, bias=0, size=100):
+    def sample(self, times, labels1, labels2, biases=0, size=100):
         """
-        Draw random samples from the predicted probability distribution.
+        Draw random samples from the predicted comparison probability
+        distribution.
+
+        Parameters
+        ----------
+        times : array_like of np.datetime64
+            List of datetimes.
+
+        labels1 : array_like of string
+            List of first entity labels.
+
+        labels2 : array_like of string
+            List of second entity labels.
+
+        biases : array_like of float, optional
+            Single bias number or list of bias numbers which match the
+            comparison inputs.
+            Default is 0, in which case no bias is used.
+
+        size : int, optional
+            Number of samples to be drawn.
+            Default is 1, in which case a single value is returned.
 
         """
         times = np.array(times, dtype='datetime64[s]', ndmin=1)
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
-
-        if np.isscalar(bias):
-            biases = np.full_like(times, bias, dtype='float')
-        else:
-            biases = np.array(bias, dtype='float', ndmin=1)
+        biases = np.ones_like(times) * np.array(biases, dtype='float', ndmin=1)
 
         if size < 1 or not isinstance(size, int):
             raise ValueError("sample size must be a positive integer")

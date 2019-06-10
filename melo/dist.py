@@ -1,4 +1,6 @@
-# -*- coding: utf-8 -*-
+# MELO: Margin-dependent Elo ratings and predictions
+# Copyright 2019 J. Scott Moreland
+# MIT License
 
 import numpy as np
 from scipy.special import erf, erfc, erfcinv

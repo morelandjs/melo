@@ -1,3 +1,4 @@
+.. _theory:
 Theory
 ======
 
@@ -8,7 +9,7 @@ Introduction
 ------------
 
 The Elo rating system is a method for predicting the outcome of paired comparisons in win/loss games such as chess.
-Players (or teams) are assigned a rating (number) which encodes their true skill level.
+Players (or teams) are assigned a rating :math:`R` which encodes their true skill level.
 By convention, larger ratings correspond to higher skill levels and smaller ratings to lower skill levels.
 
 Consider two players named "Lisa" and "Mark" which play some win/loss game.
@@ -44,7 +45,7 @@ The key insight is to realize that the definition of "winning" is arbitrary.
 Typically we associate winning with scoring more points than the opponent but that need not be the case.
 Suppose, as before, that Lisa and Mark play each other in a game, but this time the game is point-based.
 
-Imagine an operator which performs a comparison on an ordered tuple `(\text{Lisa}, \text{Mark})` and evaluates to True or False.
+Imagine an operator :math:`\mathcal{C}` which performs a comparison on an ordered tuple `(\text{Lisa}, \text{Mark})` and evaluates to True or False.
 In the traditional Elo system, this operator merely determines the winner of the game
 
 .. math::
@@ -60,7 +61,7 @@ Meanwhile, for a point-based game, the analogous comparison operator is
 where `S_\text{Lisa}` and `S_\text{Mark}` are Lisa and Mark's respective scores.
 This comparison operator defines "winning" as outscoring the opponent.
 
-Alternatively, we can imagine a comparison operator that defines winning subject to a variable handicap `\ell`:
+Alternatively, we can imagine a comparison operator :math:`\mathcal{C}_\ell` that defines winning subject to a variable handicap `\ell`:
 
 .. math::
 
@@ -112,13 +113,13 @@ This particular observable anti-commutes under label interchange, i.e\.
 
 .. math::
 
-   \text{Spread}(\text{Lisa}, \text{mark}) = -\text{Spread}(\text{Mark}, \text{Lisa}).
+   \text{Spread}(\text{Lisa}, \text{Mark}) = -\text{Spread}(\text{Mark}, \text{Lisa}).
 
 It's also possible to estimate Elo ratings and predictions for point totals (points scored plus points allowed) which *commute* under label interchange
 
 .. math::
 
-   \text{Total}(\text{Lisa}, \text{mark}) = \text{Total}(\text{Mark}, \text{Lisa}).
+   \text{Total}(\text{Lisa}, \text{Mark}) = \text{Total}(\text{Mark}, \text{Lisa}).
 
 The model requires two small adjustments.
 The predicted probability becomes the *sum* of each rating

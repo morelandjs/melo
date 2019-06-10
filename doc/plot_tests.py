@@ -164,7 +164,8 @@ def quickstart_example():
     k = .15
 
     # train the model on the list of comparisons
-    melo = Melo(times, labels1, labels2, spreads, lines=lines, k=k)
+    melo = Melo(lines=lines, k=k)
+    melo.fit(times, labels1, labels2, spreads)
 
     # predicted and true (analytic) comparison values
     pred_times = np.repeat(melo.last_update, times.size)
@@ -188,13 +189,11 @@ def validate_spreads():
         nrows=2, figsize=figsize(aspect=1.2))
 
     # train margin-dependent Elo model
-    melo = Melo(
-        league.times, league.labels1, league.labels2, league.spreads,
-        lines=np.arange(-49.5, 50.5), commutes=False, k=1e-4,
-    )
+    melo = Melo(lines=np.arange(-49.5, 50.5), commutes=False, k=1e-4)
+    melo.fit(league.times, league.labels1, league.labels2, league.spreads)
 
     # exact prior distribution
-    outcomes = melo.values[:, np.newaxis] > melo.lines
+    outcomes = melo.training_inputs.value[:, np.newaxis] > melo.lines
     sf = np.mean(outcomes, axis=0)
     ax_prior.plot(melo.lines, sf, color='k')
 
@@ -251,13 +250,11 @@ def validate_totals():
         nrows=2, figsize=figsize(aspect=1.2))
 
     # train margin-dependent Elo model
-    melo = Melo(
-        league.times, league.labels1, league.labels2, league.totals,
-        lines=np.arange(149.5, 250.5), commutes=True, k=1e-4,
-    )
+    melo = Melo(lines=np.arange(149.5, 250.5), commutes=True, k=1e-4)
+    melo.fit(league.times, league.labels1, league.labels2, league.totals)
 
     # exact prior distribution
-    outcomes = melo.values[:, np.newaxis] > melo.lines
+    outcomes = melo.training_inputs.value[:, np.newaxis] > melo.lines
     sf = np.mean(outcomes, axis=0)
     ax_prior.plot(melo.lines, sf, color='k')
 
@@ -325,10 +322,8 @@ def convergence():
     for ax, (commutes, lines, values, ylabel) in zip(axes, subplots):
 
         # train margin-dependent Elo model
-        melo = Melo(
-            league.times, league.labels1, league.labels2, values,
-            lines=lines, commutes=commutes, k=1e-4
-        )
+        melo = Melo(lines=lines, commutes=commutes, k=1e-4)
+        melo.fit(league.times, league.labels1, league.labels2, values)
 
         line = lines[-1]
 
