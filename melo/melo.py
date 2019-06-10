@@ -129,11 +129,11 @@ class Melo:
         self.first_update = None
         self.last_update = None
         self.labels = None
-        self.training_inputs = None
+        self.training_data = None
         self.prior_rating = None
         self.ratings_history = None
 
-    def _read_training_inputs(self, times, labels1, labels2, values, biases):
+    def _read_training_data(self, times, labels1, labels2, values, biases):
         """
         Internal function: Read training inputs and initialize class variables
 
@@ -162,13 +162,17 @@ class Melo:
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
         values = np.array(values, dtype='float', ndmin=1)
-        biases = np.array(biases, dtype='float', ndmin=1) * np.ones_like(times)
+
+        if np.isscalar(biases):
+            biases = np.full_like(times, biases, dtype='float')
+        else:
+            biases = np.array(biases, dtype='float', ndmin=1)
 
         self.first_update = times.min()
         self.last_update = times.max()
         self.labels = np.union1d(labels1, labels2)
 
-        self.training_inputs = np.sort(
+        self.training_data = np.sort(
             np.rec.fromarrays([
                 times,
                 labels1,
@@ -282,7 +286,7 @@ class Melo:
 
         """
         # read training inputs and initialize class variables
-        self._read_training_inputs(times, labels1, labels2, values, biases)
+        self._read_training_data(times, labels1, labels2, values, biases)
 
         # initialize ratings history for each label
         self.ratings_history = {label: [] for label in self.labels}
@@ -297,7 +301,7 @@ class Melo:
         loss = 0
 
         # loop over all binary comparisons
-        for (time, label1, label2, value, bias) in self.training_inputs:
+        for (time, label1, label2, value, bias) in self.training_data:
 
             # query ratings and evolve to the current time
             rating1, rating2 = [
@@ -409,7 +413,12 @@ class Melo:
         times = np.array(times, dtype='datetime64[s]', ndmin=1)
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
-        biases = np.array(biases, dtype='float', ndmin=1) * np.ones_like(times)
+
+        if np.isscalar(biases):
+            biases = np.full_like(times, biases, dtype='float')
+        else:
+            biases = np.array(biases, dtype='float', ndmin=1)
+
         lines = np.array(lines, dtype='float', ndmin=1)
 
         probabilities = []
@@ -458,7 +467,11 @@ class Melo:
         times = np.array(times, dtype='datetime64[s]', ndmin=1)
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
-        biases = np.array(biases, dtype='float', ndmin=1) * np.ones_like(times)
+
+        if np.isscalar(biases):
+            biases = np.full_like(times, biases, dtype='float')
+        else:
+            biases = np.array(biases, dtype='float', ndmin=1)
 
         p = np.true_divide(p, 100.0)
 
@@ -512,7 +525,11 @@ class Melo:
         times = np.array(times, dtype='datetime64[s]', ndmin=1)
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
-        biases = np.array(biases, dtype='float', ndmin=1) * np.ones_like(times)
+
+        if np.isscalar(biases):
+            biases = np.full_like(times, biases, dtype='float')
+        else:
+            biases = np.array(biases, dtype='float', ndmin=1)
 
         q = np.asarray(q)
 
@@ -559,7 +576,11 @@ class Melo:
         times = np.array(times, dtype='datetime64[s]', ndmin=1)
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
-        biases = np.array(biases, dtype='float', ndmin=1) * np.ones_like(times)
+
+        if np.isscalar(biases):
+            biases = np.full_like(times, biases, dtype='float')
+        else:
+            biases = np.array(biases, dtype='float', ndmin=1)
 
         means = []
 
@@ -600,7 +621,11 @@ class Melo:
         times = np.array(times, dtype='datetime64[s]', ndmin=1)
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
-        biases = np.array(biases, dtype='float', ndmin=1) * np.ones_like(times)
+
+        if np.isscalar(biases):
+            biases = np.full_like(times, biases, dtype='float')
+        else:
+            biases = np.array(biases, dtype='float', ndmin=1)
 
         medians = []
 
@@ -644,7 +669,7 @@ class Melo:
 
         residuals = []
 
-        for (time, label1, label2, obs, bias) in self.training_inputs:
+        for (time, label1, label2, obs, bias) in self.training_data:
 
             pred = func(time, label1, label2, bias=bias)
             residual = pred - obs
@@ -676,7 +701,7 @@ class Melo:
         """
         quantiles = []
 
-        for (time, label1, label2, obs, bias) in self.training_inputs:
+        for (time, label1, label2, obs, bias) in self.training_data:
 
             quantile = self.probability(
                 time, label1, label2, lines=obs, bias=bias
@@ -752,7 +777,11 @@ class Melo:
         times = np.array(times, dtype='datetime64[s]', ndmin=1)
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
-        biases = np.ones_like(times) * np.array(biases, dtype='float', ndmin=1)
+
+        if np.isscalar(biases):
+            biases = np.full_like(times, biases, dtype='float')
+        else:
+            biases = np.array(biases, dtype='float', ndmin=1)
 
         if size < 1 or not isinstance(size, int):
             raise ValueError("sample size must be a positive integer")

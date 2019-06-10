@@ -13,20 +13,22 @@ def test_class_init():
     Checking melo class constructor
 
     """
-    # single entry
+    # dummy class instance
+    melo = Melo(0, lines=np.array(0))
+
+    # assert commutes=False requires symmetric lines
+    assert_raises(ValueError, Melo, 0, [-1, 2])
+
+    # single comparison
     time = np.datetime64('now')
     label1 = 'alpha'
     label2 = 'beta'
     value = np.random.uniform(-10, 10)
-    lines = np.array(0)
 
-    # construct class object
-    melo = Melo(time, label1, label2, value, lines=lines)
+    # fit to the training data
+    melo.fit(time, label1, label2, value)
 
-    # assert commutes=False requires symmetric lines
-    assert_raises(ValueError, Melo, time, label1, label2, value, [-1, 2])
-
-    # multiple entries
+    # multiple comparisons
     times = np.arange(100).astype('datetime64[s]')
     labels1 = np.repeat('alpha', 100)
     labels2 = np.repeat('beta', 100)
@@ -34,16 +36,17 @@ def test_class_init():
 
     # randomize times
     np.random.shuffle(times)
-    melo = Melo(times, labels1, labels2, values, lines=0)
-    comp = melo.comparisons
+    melo.fit(times, labels1, labels2, values)
+    training_data = melo.training_data
 
     # check comparison length
-    assert comp.shape == (100,)
+    assert training_data.shape == (100,)
 
     # check that comparisons are sorted
-    assert np.array_equal(np.sort(comp.time), comp.time)
+    assert np.array_equal(
+        np.sort(training_data.time), training_data.time)
 
-    # check times
+    # check first and last times
     assert melo.first_update == times.min()
     assert melo.last_update == times.max()
 
@@ -53,19 +56,23 @@ def test_prior_rating():
     Checking prior (default) rating
 
     """
+    # dummy class instance
+    melo = Melo(0)
+
+    # generic comparison data
     times = np.arange(100).astype('datetime64[s]')
     labels1 = np.repeat('alpha', 100)
     labels2 = np.repeat('beta', 100)
 
     # test null rating for 50-50 outcome
     values = np.append(np.ones(50), -np.ones(50))
-    melo = Melo(times, labels1, labels2, values, lines=0)
+    melo.fit(times, labels1, labels2, values)
     prob = norm.cdf(2*melo.prior_rating)[0]
     assert_almost_equal(prob, .5)
 
     # test null rating for 10-90 outcome
     values = np.append(np.ones(10), -np.ones(90))
-    melo = Melo(times, labels1, labels2, values, lines=0)
+    melo.fit(times, labels1, labels2, values)
     prob = norm.cdf(2*melo.prior_rating)[0]
     assert_almost_equal(prob, .1)
 
@@ -75,18 +82,23 @@ def test_evolve():
     Checking rating regression
 
     """
-    decay_rate = np.random.rand()
+    # random rating decay
+    rating_decay = np.random.rand()
 
+    # create a typical regression function
     def regress(time):
-        return 1 - np.exp(-decay_rate*time)
+        return 1 - np.exp(-rating_decay*time)
 
-    melo = Melo(
-        np.datetime64('now'), 'alpha', 'beta', 0,
-        regress=regress, regress_unit='year'
-    )
+    # melo class instance
+    melo = Melo(0, regress=regress, regress_unit='year')
 
+    # fit the model to some data
+    melo.fit(np.datetime64('now'), 'alpha', 'beta', 0)
+
+    # fix the prior rating
     melo.prior_rating = 0
 
+    # check that the ratings are properly regressed to the mean
     for years in range(4):
         nsec = int(years*melo.seconds['year'])
         seconds = np.timedelta64(nsec, 's')
@@ -98,14 +110,17 @@ def test_query_rating():
     Checking rating query function
 
     """
+    # dummy class instance
+    melo = Melo(0)
+
     # single entry
     time = np.datetime64('now')
     label1 = 'alpha'
     label2 = 'beta'
     value = np.random.uniform(-10, 10)
 
-    # construct class object
-    melo = Melo(time, label1, label2, value, lines=0)
+    # train the model
+    melo.fit(time, label1, label2, value)
 
     one_hour = np.timedelta64(1, 'h')
     melo.ratings_history['alpha'] = np.rec.array(
@@ -125,6 +140,9 @@ def test_rate():
     Checking core rating function
 
     """
+    # dummy class instance
+    melo = Melo(2)
+
     # alpha wins, beta loses
     times = np.arange(2).astype('datetime64[s]')
     labels1 = np.repeat('alpha', 2)
@@ -132,7 +150,7 @@ def test_rate():
     values = [1, -1]
 
     # instantiate ratings
-    melo = Melo(times, labels1, labels2, values, k=2)
+    melo.fit(times, labels1, labels2, values)
 
     # rating_change = k * (obs - prior) = 2 * (1 - .5)
     rec = melo.ratings_history
