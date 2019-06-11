@@ -26,6 +26,7 @@ Next, create a Melo class object and specify its constructor arguments. ::
 
 Parameters
 """"""""""
+
 * **k** *(float)* -- At bare minimum, you'll need to specify the rating update factor k which is the first and only positional argument. The k factor controls the magnitude of each rating update, with larger k values making the model more responsive to each comparison outcome. Its value should be chosen by minimizing the model's predictive error.
 
 * **lines** *(array_like of float, optional)* -- The lines array specifies the sequence of binary comparison thresholds. The default, lines=0, corresponds to a classical Elo model where the comparison outcome is True if the value is greater than 0 and False otherwise. In general, you'll want to create an array of lines spanning the range of possible outcomes (see `Example <example.html>`_).

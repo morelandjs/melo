@@ -9,9 +9,9 @@ import melo
 sys.path.insert(0, os.path.abspath(os.pardir))
 
 project = 'melo'
-version = release = '1.0.0'
+version = release = melo.__version__
 author = 'J. Scott Moreland'
-copyright = '2018 J. Scott Moreland'
+copyright = '2019 J. Scott Moreland'
 
 source_suffix = '.rst'
 master_doc = 'index'
