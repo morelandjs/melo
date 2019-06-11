@@ -3,7 +3,7 @@
 # MIT License
 
 import numpy as np
-from scipy.special import erf, erfc, erfcinv
+from scipy.special import erf, erfc, erfcinv, expit
 
 
 class normal:
@@ -43,19 +43,19 @@ class logistic:
         Cumulative distribution function
 
         """
-        return 1 / (1 + np.exp(-(x - loc)/scale))
+        return expit((x - loc)/scale)
 
     def sf(x, loc=0, scale=1):
         """
         Survival function
 
         """
-        expz = np.exp(-(x - loc)/scale)
-        return expz/(1 + expz)
+        return 1 - expit((x - loc)/scale)
 
     def isf(x, loc=0, scale=1):
         """
         Inverse survival function
 
         """
-        return scale*np.log((1 - x)/x) + loc
+        np.seterr(divide='ignore')
+        return scale*np.log(np.divide(1 - x, x)) + loc
