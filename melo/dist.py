@@ -11,6 +11,7 @@ class normal:
     Normal probability distribution function
 
     """
+    @staticmethod
     def cdf(x, loc=0, scale=1):
         """
         Cumulative distribution function
@@ -18,6 +19,7 @@ class normal:
         """
         return 0.5*(1 + erf((x - loc)/(scale*np.sqrt(2))))
 
+    @staticmethod
     def sf(x, loc=0, scale=1):
         """
         Survival function
@@ -25,6 +27,7 @@ class normal:
         """
         return 0.5*erfc((x - loc)/(scale*np.sqrt(2)))
 
+    @staticmethod
     def isf(x, loc=0, scale=1):
         """
         Inverse survival function
@@ -38,6 +41,7 @@ class logistic:
     Logistic probability distribution function
 
     """
+    @staticmethod
     def cdf(x, loc=0, scale=1):
         """
         Cumulative distribution function
@@ -45,6 +49,7 @@ class logistic:
         """
         return expit((x - loc)/scale)
 
+    @staticmethod
     def sf(x, loc=0, scale=1):
         """
         Survival function
@@ -52,6 +57,7 @@ class logistic:
         """
         return 1 - expit((x - loc)/scale)
 
+    @staticmethod
     def isf(x, loc=0, scale=1):
         """
         Inverse survival function
