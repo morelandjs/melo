@@ -27,25 +27,41 @@ Example usage::
    from melo import Melo
 
    # the package comes pre-bundled with an example dataset
-   pkgdata = pkgutil.get_data('melo', 'nfl_scores.dat').splitlines()
-   times, teams_home, teams_away, spreads = zip(*[l.split() for l in pkgdata])
+   pkgdata = pkgutil.get_data('melo', 'nfl.dat').splitlines()
+   dates, teams_home, scores_home, teams_away, scores_away = zip(
+       *[l.split() for l in pkgdata[1:]])
 
-   # specify values for the model training parameters
-   nfl_spreads = Melo(
-       times, teams_home, teams_away, spreads, commutes=False,
-       lines=np.arange(-50.5, 51.5), k=.245, bias=.166,
-       regress=lambda months: .413 if months > 3 else 0,
-       regress_unit='month'
-   )
+   # define a binary comparison statistic
+   spreads = [int(h) - int(a) for h, a
+       in zip(scores_home, scores_away)]
+
+   # hyperparameters and options
+   k = 0.245
+   biases = 0.166
+   lines = np.arange(-50.5, 51.5)
+   regress = lambda months: .413 if months > 3 else 0
+   regress_unit = 'month'
+   commutes = False
+
+   # initialize the estimator
+   nfl_spreads = Melo(k, lines=lines, commutes=commutes,
+                      regress=regress, regress_unit=regress_unit)
+
+   # fit the estimator to the training data
+   nfl_spreads.fit(dates, teams_home, teams_away, spreads,
+                   biases=biases)
 
    # specify a comparison time
    time = nfl_spreads.last_update
 
    # predict the mean outcome at that time
-   mean = nfl_spreads.mean(time, 'CLE', 'KC', bias=.166)
-
-   # mean expected CLE vs KC point differential
+   mean = nfl_spreads.mean(time, 'CLE', 'KC', biases=biases)
    print('CLE VS KC: {}'.format(mean))
+
+   # rank nfl teams at end of 2018 regular season
+   rankings = nfl_spreads.rank(time, statistic='mean')
+   for team, rank in rankings:
+       print('{}: {}'.format(team, rank))
 
 .. _numpy: http://www.numpy.org
 .. _pip: https://pip.pypa.io
