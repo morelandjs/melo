@@ -27,12 +27,11 @@ where time is a np.datetime64 object recording the time of the comparison, `\tex
 Point spread validation
 -----------------------
 
-I then calculate the score difference or `\text{spread} \equiv \text{score1} - \text{score2}` for each game to form a list of comparisons `(\text{time}, \text{team1}, \text{team2}, \text{spread})` and use these comparisons to train the margin-dependent Elo model:
-
-.. code-block:: python
+I then calculate the score difference or `\text{spread} \equiv \text{score1} - \text{score2}` for each game to form a list of comparisons `(\text{time}, \text{team1}, \text{team2}, \text{spread})` and use these comparisons to train the margin-dependent Elo model: ::
 
    lines = np.arange(-49.5, 50.5)
-   Melo(times, teams1, teams2, spreads, lines=lines, k=1e-4, commutes=False)
+   model = Melo(1e-4, lines=lines, commutes=False)
+   model.fit(times, teams1, teams2, spreads)
 
 Now that the model is trained, I can predict the probability that various matchups cover each value of the line, i.e\. `P(\text{spread} > \text{line})`. Since the underlying distributions are known, I can validate these predictions using their analytic results.
 

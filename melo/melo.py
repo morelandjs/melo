@@ -630,7 +630,7 @@ class Melo:
         medians = []
 
         for time, label1, label2, bias in zip(times, labels1, labels2, biases):
-            median = self.quantile(time, label1, label2, q=.5, bias=bias)
+            median = self.quantile(time, label1, label2, q=.5, biases=bias)
             medians.append(np.asscalar(median))
 
         return np.squeeze(medians)
