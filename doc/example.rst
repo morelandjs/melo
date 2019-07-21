@@ -95,16 +95,15 @@ Note, at this point we have not trained the model on any data yet.
 We've simply specified some necessary hyperparameters and options.
 Before we actually fit the model to data, we'll need to specify one last model parameter.
 
-The model also includes a ``biases`` parameter that can be used to implement transient effects such as home field advantage.
+The model also includes a ``bias`` parameter that can be used to implement transient effects such as home field advantage.
 It can be a scalar (same for all comparisons) or a vector (specified for each comparison).
 For simplicity, let's ignore the occasional NFL game on a neutral field and choose a constant home field advantage. ::
 
-   biases = 0.166
+   bias = 0.166
 
 Assembling the previous components, the model is trained by calling its fit function on the previously defined training data: ::
 
-   nfl_spreads.fit(dates, teams_home, teams_away, spreads,
-                   biases=biases)
+   nfl_spreads.fit(dates, teams_home, teams_away, spreads, bias=bias)
 
 Once the model is fit to the data, we can easily generate predictions by calling its various instance methods: ::
 
@@ -112,23 +111,23 @@ Once the model is fit to the data, we can easily generate predictions by calling
    time = nfl_spreads.last_update + np.timedelta64(1, 'D')
 
    # predict the mean outcome at 'time'
-   nfl_spreads.mean(time, 'CLE', 'KC', biases=0.166)
+   nfl_spreads.mean(time, 'CLE', 'KC', bias=0.166)
 
    # predict the median outcome at 'time'
-   nfl_spreads.median(time, 'CLE', 'KC', biases=0.166)
+   nfl_spreads.median(time, 'CLE', 'KC', bias=0.166)
 
    # predict the interquartile range at 'time'
-   nfl_spreads.quantile(time, 'CLE', 'KC', q=[.25, .5, .75], biases=0.166)
+   nfl_spreads.quantile(time, 'CLE', 'KC', q=[.25, .5, .75], bias=0.166)
 
    # predict the win probability at 'time'
-   nfl_spreads.probability(time, 'CLE', 'KC', biases=0.166)
+   nfl_spreads.probability(time, 'CLE', 'KC', bias=0.166)
 
    # generate prediction samples at 'time'
-   nfl_spreads.sample(time, 'CLE', 'KC', biases=0.166, size=100)
+   nfl_spreads.sample(time, 'CLE', 'KC', bias=0.166, size=100)
 
 .. note::
 
-   Here I've used ``biases=0.166`` to apply home field advantage, but I could just as easily set ``biases=0`` to generate predictions for a neutral field.
+   Here I've used ``bias=0.166`` to apply home field advantage, but I could just as easily set ``bias=0`` to generate predictions for a neutral field.
 
 Furthermore, the model can rank teams by their expected performance against a league average opponent on a neutral field.
 Let's evaluate this ranking at the end of the 2018–2019 season. ::
@@ -161,14 +160,14 @@ Additionally, we'll need to set ::
    commutes = True
 
 since the point total comparisons are invariant under label interchange.
-Finally, we'll want to provide somewhat different inputs for the k, biases, and regress arguments.
+Finally, we'll want to provide somewhat different inputs for the k, bias, and regress arguments.
 Putting the pieces together: ::
 
    nfl_totals = Melo(.245, lines=lines, commutes=True,
                      regress=lambda months: .3 if months > 3 else 0,
                      regress_unit='month')
 
-    nfl_totals.fit(dates, teams_home, teams_away, totals, biases=0)
+    nfl_totals.fit(dates, teams_home, teams_away, totals, bias=0)
 
 And voila! We can easily predict the outcome of a future point total comparison. ::
 
