@@ -193,7 +193,7 @@ def validate_spreads():
     melo.fit(league.times, league.labels1, league.labels2, league.spreads)
 
     # exact prior distribution
-    outcomes = melo.training_inputs.value[:, np.newaxis] > melo.lines
+    outcomes = melo.training_data.value[:, np.newaxis] > melo.lines
     sf = np.mean(outcomes, axis=0)
     ax_prior.plot(melo.lines, sf, color='k')
 
@@ -254,7 +254,7 @@ def validate_totals():
     melo.fit(league.times, league.labels1, league.labels2, league.totals)
 
     # exact prior distribution
-    outcomes = melo.training_inputs.value[:, np.newaxis] > melo.lines
+    outcomes = melo.training_data.value[:, np.newaxis] > melo.lines
     sf = np.mean(outcomes, axis=0)
     ax_prior.plot(melo.lines, sf, color='k')
 
