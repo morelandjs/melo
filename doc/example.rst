@@ -167,7 +167,7 @@ Putting the pieces together: ::
                      regress=lambda months: .3 if months > 3 else 0,
                      regress_unit='month')
 
-    nfl_totals.fit(dates, teams_home, teams_away, totals, bias=0)
+   nfl_totals.fit(dates, teams_home, teams_away, totals, bias=0)
 
 And voila! We can easily predict the outcome of a future point total comparison. ::
 
