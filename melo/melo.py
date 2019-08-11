@@ -747,7 +747,7 @@ class Melo(object):
             raise ValueError('no such order parameter')
 
         ranked_list = [
-            (label, np.float(func(time, label, 'average')))
+            (label, np.float(func(time, label, 'average', bias=0)))
             for label in self.labels
         ]
 
