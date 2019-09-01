@@ -116,6 +116,8 @@ class Melo(object):
         else:
             raise ValueError('no such distribution')
 
+        self.commutes = commutes
+
         if commutes is True:
             self.conjugate = lambda x: x
         else:
@@ -125,11 +127,11 @@ class Melo(object):
                 )
             self.conjugate = lambda x: -x[::-1]
 
-        self.loss = 0
         self.first_update = None
         self.last_update = None
         self.labels = None
         self.training_data = None
+        self.prior_bias = None
         self.prior_rating = None
         self.ratings_history = None
 
@@ -190,8 +192,10 @@ class Melo(object):
 
         TINY = 1e-6
         prob = np.clip(prior_prob, TINY, 1 - TINY)
+        rating_diff = -self.dist.isf(prob)
 
-        self.prior_rating = -0.5*self.dist.isf(prob)
+        self.prior_bias = np.median(rating_diff) if not self.commutes else 0
+        self.prior_rating = 0.5*(rating_diff - self.prior_bias)
 
     def evolve(self, rating, time_delta):
         """
@@ -295,11 +299,12 @@ class Melo(object):
             for label in self.labels
         }
 
-        # calibration loss
-        loss = 0
+        # record loss for every prediction
+        loss_array = np.zeros(times.size)
 
         # loop over all binary comparisons
-        for (time, label1, label2, value, bias) in self.training_data:
+        for step, (time, label1, label2, value, bias) \
+                in enumerate(self.training_data):
 
             # query ratings and evolve to the current time
             rating1, rating2 = [
@@ -311,12 +316,15 @@ class Melo(object):
             ]
 
             # expected and observed comparison outcomes
-            rating_diff = rating1 + self.conjugate(rating2) + bias
+            total_bias = self.prior_bias + bias
+            rating_diff = rating1 + self.conjugate(rating2) + total_bias
             obs = self.dist.sf(self.lines, loc=value, scale=self.sigma)
             pred = self.dist.cdf(rating_diff)
 
-            # update cross entropy
-            loss += -(obs*np.log(pred) + (1 - obs)*np.log(1 - pred)).sum()
+            # cross entropy loss
+            loss_array[step] = -(
+                obs*np.log(pred) + (1 - obs)*np.log(1 - pred)
+            ).sum()
 
             # update current ratings
             rating_change = self.k * (obs - pred)
@@ -337,9 +345,8 @@ class Melo(object):
                 ]
             )
 
-        self.loss = loss
-
-        return loss
+        # return cross entropy loss for multi-class classifier
+        return loss_array
 
     def _predict(self, time, label1, label2, bias=0):
         """
@@ -367,7 +374,8 @@ class Melo(object):
         rating1 = self.query_rating(time, label1)
         rating2 = self.query_rating(time, label2)
 
-        rating_diff = rating1 + self.conjugate(rating2) + bias
+        total_bias = self.prior_bias + bias
+        rating_diff = rating1 + self.conjugate(rating2) + total_bias
 
         return self.lines, self.dist.cdf(rating_diff)
 
