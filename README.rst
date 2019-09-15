@@ -37,7 +37,6 @@ Example usage::
 
    # hyperparameters and options
    k = 0.245
-   bias = 0.166
    lines = np.arange(-50.5, 51.5)
    regress = lambda months: .413 if months > 3 else 0
    regress_unit = 'month'
@@ -48,14 +47,13 @@ Example usage::
                       regress=regress, regress_unit=regress_unit)
 
    # fit the estimator to the training data
-   nfl_spreads.fit(dates, teams_home, teams_away, spreads,
-                   bias=bias)
+   nfl_spreads.fit(dates, teams_home, teams_away, spreads)
 
    # specify a comparison time
    time = nfl_spreads.last_update
 
    # predict the mean outcome at that time
-   mean = nfl_spreads.mean(time, 'CLE', 'KC', bias=bias)
+   mean = nfl_spreads.mean(time, 'CLE', 'KC')
    print('CLE VS KC: {}'.format(mean))
 
    # rank nfl teams at end of 2018 regular season
