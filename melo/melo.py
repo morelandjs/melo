@@ -195,9 +195,13 @@ class Melo(object):
         rating_diff = -self.dist.isf(prob)
 
         self.prior_bias = np.median(rating_diff) if not self.commutes else 0
-        self.prior_rating = 0.5*(rating_diff - self.prior_bias)
 
-    def evolve(self, rating, time_delta):
+        self.prior_rating = {
+            label: 0.5*(rating_diff - self.prior_bias)
+            for label in np.append(self.labels, 'average')
+        }
+
+    def evolve(self, rating, mean_rating, time_delta):
         """
         Evolve rating to a future time and regress to the mean.
 
@@ -219,7 +223,7 @@ class Melo(object):
         elapsed_periods = elapsed_seconds / self.seconds_per_period
         regress = self.regress(elapsed_periods)
 
-        return rating + regress*(self.prior_rating - rating)
+        return rating + regress*(mean_rating - rating)
 
     def query_rating(self, time, label):
         """
@@ -246,7 +250,7 @@ class Melo(object):
         time = np.datetime64(time, 's')
 
         if label.lower() == 'average':
-            return self.prior_rating
+            return self.prior_rating[label]
         elif label not in self.ratings_history:
             raise ValueError("no such label in comparisons")
 
@@ -254,9 +258,13 @@ class Melo(object):
             last_update = self.ratings_history[label][
                 np.nonzero(self.ratings_history[label].time < time)
             ][-1]
-            return self.evolve(last_update.rating, time - last_update.time)
+            return self.evolve(
+                last_update.rating,
+                self.prior_rating[label],
+                time - last_update.time,
+            )
         except IndexError:
-            return self.prior_rating
+            return self.prior_rating[label]
 
     def fit(self, times, labels1, labels2, values, biases=0):
         """
@@ -295,8 +303,10 @@ class Melo(object):
 
         # temporary variable to store each label's last rating
         prev_update = {
-            label: (self.first_update, self.prior_rating)
-            for label in self.labels
+            label: {
+                'time': self.first_update,
+                'rating': self.prior_rating[label],
+            } for label in self.labels
         }
 
         # record loss for every prediction
@@ -308,11 +318,12 @@ class Melo(object):
 
             # query ratings and evolve to the current time
             rating1, rating2 = [
-                self.evolve(prev_rating, time - prev_time)
-                for prev_time, prev_rating in [
-                        prev_update[label1],
-                        prev_update[label2],
-                ]
+                self.evolve(
+                    prev_update[label]['rating'],
+                    self.prior_rating[label],
+                    time - prev_update[label]['time'],
+                )
+                for label in [label1, label2]
             ]
 
             # expected and observed comparison outcomes
@@ -334,7 +345,7 @@ class Melo(object):
             # record current ratings
             for label, rating in [(label1, rating1), (label2, rating2)]:
                 self.ratings_history[label].append((time, rating))
-                prev_update[label] = (time, rating)
+                prev_update[label] = {'time': time, 'rating': rating}
 
         # convert ratings history to a structured rec.array
         for label in self.ratings_history.keys():

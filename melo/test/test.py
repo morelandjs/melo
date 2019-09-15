@@ -102,7 +102,7 @@ def test_evolve():
     for years in range(4):
         nsec = int(years*melo.seconds['year'])
         seconds = np.timedelta64(nsec, 's')
-        assert melo.evolve(1, seconds) == 1 - regress(years)
+        assert melo.evolve(1, melo.prior_rating, seconds) == 1 - regress(years)
 
 
 def test_query_rating():
