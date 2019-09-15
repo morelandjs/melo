@@ -5,6 +5,7 @@ from itertools import combinations
 import logging
 import os
 from pathlib import Path
+import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -366,17 +367,20 @@ def main():
     parser.add_argument('plots', nargs='*')
     args = parser.parse_args()
 
-    if args.plots:
-        for i in args.plots:
-            if i.endswith('.pdf'):
-                i = i[:-4]
-            if i in plot_functions:
-                plot_functions[i]()
-            else:
-                print('unknown plot:', i)
-    else:
-        for f in plot_functions.values():
-            f()
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore",category=FutureWarning)
+
+        if args.plots:
+            for i in args.plots:
+                if i.endswith('.pdf'):
+                    i = i[:-4]
+                if i in plot_functions:
+                    plot_functions[i]()
+                else:
+                    print('unknown plot:', i)
+        else:
+            for f in plot_functions.values():
+                f()
 
 
 if __name__ == "__main__":

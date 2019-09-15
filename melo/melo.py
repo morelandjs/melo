@@ -46,7 +46,7 @@ class Melo(object):
         The time units are set by the parameter regress_units (see below).
 
     regress_unit : string, optional
-        Units of elapsed time for the regress function.
+        Unit of elapsed time for the regress function.
         Options are: year (default), month, week, day, hour, minute, second,
         millisecond, microsecond, nanosecond, picosecond, femtosecond, and
         attosecond.
@@ -258,7 +258,7 @@ class Melo(object):
         except IndexError:
             return self.prior_rating
 
-    def fit(self, times, labels1, labels2, values, bias=0):
+    def fit(self, times, labels1, labels2, values, biases=0):
         """
         This function is used to calibrate the model on the training inputs.
         It computes and records each label's Elo ratings at the line(s) given
@@ -276,7 +276,7 @@ class Melo(object):
         labels2 : array_like of string
             List of second entity labels.
 
-        bias : array_like of float, optional
+        biases : array_like of float, optional
             Single bias number or list of bias numbers which match the
             comparison inputs.
             Default is 0, in which case no bias is used.
@@ -288,7 +288,7 @@ class Melo(object):
 
         """
         # read training inputs and initialize class variables
-        self._read_training_data(times, labels1, labels2, values, bias)
+        self._read_training_data(times, labels1, labels2, values, biases)
 
         # initialize ratings history for each label
         self.ratings_history = {label: [] for label in self.labels}
@@ -300,7 +300,7 @@ class Melo(object):
         }
 
         # record loss for every prediction
-        loss_array = np.zeros(times.size)
+        loss_array = np.zeros(self.training_data.size)
 
         # loop over all binary comparisons
         for step, (time, label1, label2, value, bias) \
@@ -346,6 +346,7 @@ class Melo(object):
             )
 
         # return cross entropy loss for multi-class classifier
+        loss_array /= self.lines.size
         return loss_array
 
     def _predict(self, time, label1, label2, bias=0):
@@ -379,7 +380,7 @@ class Melo(object):
 
         return self.lines, self.dist.cdf(rating_diff)
 
-    def probability(self, times, labels1, labels2, bias=0, lines=0):
+    def probability(self, times, labels1, labels2, biases=0, lines=0):
         r"""
         Predict the survival function probability
         .. math:: P(\text{value} > \text{lines})
@@ -396,7 +397,7 @@ class Melo(object):
         labels2 : array_like of string
             List of second entity labels.
 
-        bias : array_like of float, optional
+        biases : array_like of float, optional
             Single bias number or list of bias numbers which match the
             comparison inputs.
             Default is 0, in which case no bias is used.
@@ -420,10 +421,10 @@ class Melo(object):
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
 
-        if np.isscalar(bias):
-            biases = np.full_like(times, bias, dtype='float')
+        if np.isscalar(biases):
+            biases = np.full_like(times, biases, dtype='float')
         else:
-            biases = np.array(bias, dtype='float', ndmin=1)
+            biases = np.array(biases, dtype='float', ndmin=1)
 
         shape = (times.size, 1)
         lines_array = np.ones(shape) * np.array(lines, dtype='float', ndmin=1)
@@ -439,7 +440,7 @@ class Melo(object):
 
         return np.squeeze(probabilities)
 
-    def percentile(self, times, labels1, labels2, bias=0, p=50):
+    def percentile(self, times, labels1, labels2, biases=0, p=50):
         """
         Predict the p-th percentile for the specified comparison(s).
 
@@ -454,7 +455,7 @@ class Melo(object):
         labels2 : array_like of string
             List of second entity labels.
 
-        bias : array_like of float, optional
+        biases : array_like of float, optional
             Single bias number or list of bias numbers which match the
             comparison inputs.
             Default is 0, in which case no bias is used.
@@ -477,10 +478,10 @@ class Melo(object):
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
 
-        if np.isscalar(bias):
-            biases = np.full_like(times, bias, dtype='float')
+        if np.isscalar(biases):
+            biases = np.full_like(times, biases, dtype='float')
         else:
-            biases = np.array(bias, dtype='float', ndmin=1)
+            biases = np.array(biases, dtype='float', ndmin=1)
 
         p = np.true_divide(p, 100.0)
 
@@ -497,7 +498,7 @@ class Melo(object):
 
         return np.squeeze(percentiles)
 
-    def quantile(self, times, labels1, labels2, bias=0, q=.5):
+    def quantile(self, times, labels1, labels2, biases=0, q=.5):
         """
         Predict the q-th quantile for the specified comparison(s).
 
@@ -512,7 +513,7 @@ class Melo(object):
         labels2 : array_like of string
             List of second entity labels.
 
-        bias : array_like of float, optional
+        biases : array_like of float, optional
             Single bias number or list of bias numbers which match the
             comparison inputs.
             Default is 0, in which case no bias is used.
@@ -535,10 +536,10 @@ class Melo(object):
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
 
-        if np.isscalar(bias):
-            biases = np.full_like(times, bias, dtype='float')
+        if np.isscalar(biases):
+            biases = np.full_like(times, biases, dtype='float')
         else:
-            biases = np.array(bias, dtype='float', ndmin=1)
+            biases = np.array(biases, dtype='float', ndmin=1)
 
         q = np.asarray(q)
 
@@ -555,7 +556,7 @@ class Melo(object):
 
         return np.squeeze(quantiles)
 
-    def mean(self, times, labels1, labels2, bias=0):
+    def mean(self, times, labels1, labels2, biases=0):
         """
         Predict the mean for the specified comparison(s).
 
@@ -570,7 +571,7 @@ class Melo(object):
         labels2 : array_like of string
             List of second entity labels.
 
-        bias : array_like of float, optional
+        biases : array_like of float, optional
             Single bias number or list of bias numbers which match the
             comparison inputs.
             Default is 0, in which case no bias is used.
@@ -586,10 +587,10 @@ class Melo(object):
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
 
-        if np.isscalar(bias):
-            biases = np.full_like(times, bias, dtype='float')
+        if np.isscalar(biases):
+            biases = np.full_like(times, biases, dtype='float')
         else:
-            biases = np.array(bias, dtype='float', ndmin=1)
+            biases = np.array(biases, dtype='float', ndmin=1)
 
         means = []
 
@@ -600,7 +601,7 @@ class Melo(object):
 
         return np.squeeze(means)
 
-    def median(self, times, labels1, labels2, bias=0):
+    def median(self, times, labels1, labels2, biases=0):
         """
         Predict the median for the specified comparison(s).
 
@@ -615,7 +616,7 @@ class Melo(object):
         labels2 : array_like of string
             List of second entity labels.
 
-        bias : array_like of float, optional
+        biases : array_like of float, optional
             Single bias number or list of bias numbers which match the
             comparison inputs.
             Default is 0, in which case no bias is used.
@@ -631,18 +632,12 @@ class Melo(object):
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
 
-        if np.isscalar(bias):
-            biases = np.full_like(times, bias, dtype='float')
+        if np.isscalar(biases):
+            biases = np.full_like(times, biases, dtype='float')
         else:
-            biases = np.array(bias, dtype='float', ndmin=1)
+            biases = np.array(biases, dtype='float', ndmin=1)
 
-        medians = []
-
-        for time, label1, label2, bias in zip(times, labels1, labels2, biases):
-            median = self.quantile(time, label1, label2, q=.5, bias=bias)
-            medians.append(np.asscalar(median))
-
-        return np.squeeze(medians)
+        return self.quantile(times, labels1, labels2, biases=biases, q=.5)
 
     def residuals(self, statistic='mean', standardize=False):
         """
@@ -754,14 +749,16 @@ class Melo(object):
         else:
             raise ValueError('no such order parameter')
 
+        remove_bias = -self.prior_bias
+
         ranked_list = [
-            (label, np.float(func(time, label, 'average', bias=0)))
+            (label, np.float(func(time, label, 'average', biases=remove_bias)))
             for label in self.labels
         ]
 
         return sorted(ranked_list, key=lambda v: v[1], reverse=True)
 
-    def sample(self, times, labels1, labels2, bias=0, size=100):
+    def sample(self, times, labels1, labels2, biases=0, size=100):
         """
         Draw random samples from the predicted comparison probability
         distribution.
@@ -777,7 +774,7 @@ class Melo(object):
         labels2 : array_like of string
             List of second entity labels.
 
-        bias : array_like of float, optional
+        biases : array_like of float, optional
             Single bias number or list of bias numbers which match the
             comparison inputs.
             Default is 0, in which case no bias is used.
@@ -791,10 +788,10 @@ class Melo(object):
         labels1 = np.array(labels1, dtype='str', ndmin=1)
         labels2 = np.array(labels2, dtype='str', ndmin=1)
 
-        if np.isscalar(bias):
-            biases = np.full_like(times, bias, dtype='float')
+        if np.isscalar(biases):
+            biases = np.full_like(times, biases, dtype='float')
         else:
-            biases = np.array(bias, dtype='float', ndmin=1)
+            biases = np.array(biases, dtype='float', ndmin=1)
 
         if size < 1 or not isinstance(size, int):
             raise ValueError("sample size must be a positive integer")

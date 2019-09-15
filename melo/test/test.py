@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 
 from nose.tools import assert_almost_equal, assert_raises
+import warnings
 
 import numpy as np
-from scipy.stats import norm
 
 from ..melo import Melo
 
@@ -67,13 +67,13 @@ def test_prior_rating():
     # test null rating for 50-50 outcome
     values = np.append(np.ones(50), -np.ones(50))
     melo.fit(times, labels1, labels2, values)
-    prob = norm.cdf(2*melo.prior_rating)[0]
+    prob = melo.probability(0, 'alpha', 'beta')
     assert_almost_equal(prob, .5)
 
     # test null rating for 10-90 outcome
     values = np.append(np.ones(10), -np.ones(90))
     melo.fit(times, labels1, labels2, values)
-    prob = norm.cdf(2*melo.prior_rating)[0]
+    prob = melo.probability(0, 'alpha', 'beta')
     assert_almost_equal(prob, .1)
 
 
