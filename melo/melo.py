@@ -196,10 +196,11 @@ class Melo(object):
 
         self.prior_bias = np.median(rating_diff) if not self.commutes else 0
 
-        self.prior_rating = {
-            label: 0.5*(rating_diff - self.prior_bias)
-            for label in np.append(self.labels, 'average')
-        }
+        if self.prior_rating is None:
+            self.prior_rating = {
+                label: 0.5*(rating_diff - self.prior_bias)
+                for label in np.append(self.labels, 'average')
+            }
 
     def evolve(self, rating, mean_rating, time_delta):
         """
