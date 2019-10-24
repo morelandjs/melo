@@ -3,6 +3,7 @@
 # MIT License
 
 from __future__ import division
+import sys
 
 import numpy as np
 
@@ -133,7 +134,7 @@ class Melo(object):
         self.training_data = None
         self.prior_bias = None
         self.prior_rating = None
-        self.ratings_history = None
+        self.record = None
 
     def _read_training_data(self, times, labels1, labels2, values, biases):
         """
@@ -226,7 +227,7 @@ class Melo(object):
 
         return rating + regress*(mean_rating - rating)
 
-    def query_rating(self, time, label):
+    def query_rating(self, time, label, previous=None):
         """
         Query label's rating at the specified 'time' accounting
         for rating regression.
@@ -250,14 +251,15 @@ class Melo(object):
         """
         time = np.datetime64(time, 's')
 
-        if label.lower() == 'average':
-            return self.prior_rating[label]
-        elif label not in self.ratings_history:
-            raise ValueError("no such label in comparisons")
+        if label not in self.record:
+            sys.exit('no such label in comparisons')
+
+        if previous is not None:
+
 
         try:
-            last_update = self.ratings_history[label][
-                np.nonzero(self.ratings_history[label].time < time)
+            last_update = self.record[label][
+                np.nonzero(self.record[label].time < time)
             ][-1]
             return self.evolve(
                 last_update.rating,
@@ -267,7 +269,22 @@ class Melo(object):
         except IndexError:
             return self.prior_rating[label]
 
-    def fit(self, times, labels1, labels2, values, biases=0):
+    def evolve(self, comparison, future_time):
+        """
+        Evolve comparison to a future time.
+
+        """
+        label = comparison['label']
+        rating = comparison['rating']
+        time = comparison['time']
+
+        elapsed_seconds = (future_time - time) / np.timedelta64(1, 's')
+        elapsed_periods = elapsed_seconds / self.seconds_per_period
+        regress = self.regress(elapsed_periods)
+
+        return rating + regress*(mean_rating - rating)
+
+    def fit(self, times, labels1, labels2, values, biases=0, weights=None):
         """
         This function is used to calibrate the model on the training inputs.
         It computes and records each label's Elo ratings at the line(s) given
@@ -300,31 +317,29 @@ class Melo(object):
         self._read_training_data(times, labels1, labels2, values, biases)
 
         # initialize ratings history for each label
-        self.ratings_history = {label: [] for label in self.labels}
+        self.record = {label: [] for label in self.labels}
 
-        # temporary variable to store each label's last rating
-        prev_update = {
+        # dictionary that stores each label's last comparison
+        last_comparison = {
             label: {
                 'time': self.first_update,
                 'rating': self.prior_rating[label],
             } for label in self.labels
         }
 
-        # record loss for every prediction
-        loss_array = np.zeros(self.training_data.size)
+        # loop over all paired comparisons
+        for (time, labels1, labels2, value, bias) in self.training_data:
 
-        # loop over all binary comparisons
-        for step, (time, label1, label2, value, bias) \
-                in enumerate(self.training_data):
+            # query time-evolved ratings
+            ratings1, ratings2 = [[
+                self.evolve(last_comparison[sublabel], time)
+                for sublabel in label] for label in [label1, label2]
+            ]
 
-            # query ratings and evolve to the current time
+            # compute weighted average of sublabel ratings
             rating1, rating2 = [
-                self.evolve(
-                    prev_update[label]['rating'],
-                    self.prior_rating[label],
-                    time - prev_update[label]['time'],
-                )
-                for label in [label1, label2]
+                np.average(ratings, weights=weights)
+                for ratings in [ratings1, ratings2]
             ]
 
             # expected and observed comparison outcomes
@@ -333,33 +348,24 @@ class Melo(object):
             obs = self.dist.sf(self.lines, loc=value, scale=self.sigma)
             pred = self.dist.cdf(rating_diff)
 
-            # cross entropy loss
-            loss_array[step] = -(
-                obs*np.log(pred) + (1 - obs)*np.log(1 - pred)
-            ).sum()
+            # update ratings
+            rating_update = self.k * (obs - pred)
+            ratings1 = np.array(ratings1) + rating_update
+            ratings2 = np.array(ratings2) + self.conjugate(rating_update)
 
-            # update current ratings
-            rating_change = self.k * (obs - pred)
-            rating1 += rating_change
-            rating2 += self.conjugate(rating_change)
-
-            # record current ratings
-            for label, rating in [(label1, rating1), (label2, rating2)]:
-                self.ratings_history[label].append((time, rating))
-                prev_update[label] = {'time': time, 'rating': rating}
+            for label, ratings in [(labels1, ratings1), (labels2, ratings2)]:
+                for label, rating in zip(labels, ratings):
+                    self.record[label].append((time, rating))
+                    last_comparison[label] = {'time': time, 'rating': rating}
 
         # convert ratings history to a structured rec.array
-        for label in self.ratings_history.keys():
-            self.ratings_history[label] = np.rec.array(
-                self.ratings_history[label], dtype=[
+        for label in self.record.keys():
+            self.record[label] = np.rec.array(
+                self.record[label], dtype=[
                     ('time', 'datetime64[s]'),
                     ('rating', 'float', self.lines.size)
                 ]
             )
-
-        # return cross entropy loss for multi-class classifier
-        loss_array /= self.lines.size
-        return loss_array
 
     def _predict(self, time, label1, label2, bias=0):
         """
