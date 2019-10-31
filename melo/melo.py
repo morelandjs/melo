@@ -5,6 +5,7 @@
 from __future__ import division
 import sys
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 from .dist import normal, logistic
@@ -59,6 +60,10 @@ class Melo(object):
         :math:`P(\text{value} > \text{line}) =
         \text{dist.cdf}(\Delta R(\text{line}))`
 
+    combine : function, optional
+        Function that combines sublabel ratings into a single rating vector.
+        The default np.mean takes the average of the sublabel ratings.
+
     commutes : bool, optional
         If this is set to True, the comparison values are assumed to be
         symmetric under label interchange.
@@ -86,7 +91,8 @@ class Melo(object):
     }
 
     def __init__(self, k, lines=0, sigma=0, regress=lambda x: 0,
-                 regress_unit='year', dist='normal', commutes=False):
+                 regress_unit='year', dist='normal',
+                 combine=np.mean, commutes=False):
 
         if k < 0 or not np.isscalar(k):
             raise ValueError('k must be a non-negative real number')
@@ -116,6 +122,8 @@ class Melo(object):
             self.dist = logistic
         else:
             raise ValueError('no such distribution')
+
+        self.combine = combine
 
         self.commutes = commutes
 
@@ -172,7 +180,10 @@ class Melo(object):
 
         self.first_update = times.min()
         self.last_update = times.max()
-        self.labels = np.union1d(labels1, labels2)
+        self.labels = np.union1d(
+            [l.split('|') for l in labels1],
+            [l.split('|') for l in labels2],
+        )
 
         self.training_data = np.sort(
             np.rec.fromarrays([
@@ -203,14 +214,37 @@ class Melo(object):
                 for label in np.append(self.labels, 'average')
             }
 
-    def evolve(self, rating, mean_rating, time_delta):
+    def last_update_(self, time, label):
         """
-        Evolve rating to a future time and regress to the mean.
+        Label's last observed (time, rating) tuple preceding the specified time.
+
+        """
+        time = np.datetime64(time, 's')
+
+        if label not in self.record:
+            sys.exit('error: no such label in comparisons')
+
+        try:
+            time_last, rating_last = self.record[label][
+                np.nonzero(self.record[label].time < time)
+            ][-1]
+
+            return time_last, rating_last
+
+        except IndexError:
+            return self.first_update, self.prior_rating[label]
+
+    def evolve(self, rating, prior_rating, time_delta):
+        """
+        Evolve rating to future time and regress to the mean (prior rating).
 
         Parameters
         ----------
         rating : ndarray of float
             Array of label ratings.
+
+        prior_rating: ndarray of float
+            Array of prior label ratings.
 
         time_delta : np.timedelta64
             Elapsed time since the label's ratings were last updated.
@@ -225,66 +259,33 @@ class Melo(object):
         elapsed_periods = elapsed_seconds / self.seconds_per_period
         regress = self.regress(elapsed_periods)
 
-        return rating + regress*(mean_rating - rating)
+        return rating + regress*(prior_rating - rating)
 
-    def query_rating(self, time, label, previous=None):
+    def rating(self, time, label, last_update=None):
         """
-        Query label's rating at the specified 'time' accounting
-        for rating regression.
-
-        Parameters
-        ----------
-        time : np.datetime64
-            Comparison datetime
-
-        label : string
-            Comparison entity label. If label == average, then the average
-            rating of all labels is returned.
-
-        Returns
-        -------
-        rating : ndarray of float
-            Applies the user specified rating regression function to regress
-            ratings to the mean as necessary and returns the ratings for the
-            given label at the specified time.
+        Query label's rating at the specified time.
 
         """
-        time = np.datetime64(time, 's')
+        if '|' in label:
+            sublabel_ratings = [
+                self.rating(time, sublabel, last_update)
+                for sublabel in label.split('|')
+            ]
 
-        if label not in self.record:
-            sys.exit('no such label in comparisons')
+            #return np.mean(sublabel_ratings, axis=0)
+            return sublabel_ratings[0]
 
-        if previous is not None:
+        time_last, rating_last = (
+            self.last_update_(time, label)
+            if last_update is None else
+            last_update[label]
+        )
 
+        prior_rating = self.prior_rating[label]
 
-        try:
-            last_update = self.record[label][
-                np.nonzero(self.record[label].time < time)
-            ][-1]
-            return self.evolve(
-                last_update.rating,
-                self.prior_rating[label],
-                time - last_update.time,
-            )
-        except IndexError:
-            return self.prior_rating[label]
+        return self.evolve(rating_last, prior_rating, time - time_last)
 
-    def evolve(self, comparison, future_time):
-        """
-        Evolve comparison to a future time.
-
-        """
-        label = comparison['label']
-        rating = comparison['rating']
-        time = comparison['time']
-
-        elapsed_seconds = (future_time - time) / np.timedelta64(1, 's')
-        elapsed_periods = elapsed_seconds / self.seconds_per_period
-        regress = self.regress(elapsed_periods)
-
-        return rating + regress*(mean_rating - rating)
-
-    def fit(self, times, labels1, labels2, values, biases=0, weights=None):
+    def fit(self, times, labels1, labels2, values, biases=0):
         """
         This function is used to calibrate the model on the training inputs.
         It computes and records each label's Elo ratings at the line(s) given
@@ -320,27 +321,17 @@ class Melo(object):
         self.record = {label: [] for label in self.labels}
 
         # dictionary that stores each label's last comparison
-        last_comparison = {
-            label: {
-                'time': self.first_update,
-                'rating': self.prior_rating[label],
-            } for label in self.labels
+        last_update = {
+            label: (self.first_update, self.prior_rating[label])
+            for label in self.labels
         }
 
         # loop over all paired comparisons
-        for (time, labels1, labels2, value, bias) in self.training_data:
+        for (time, label1, label2, value, bias) in self.training_data:
 
-            # query time-evolved ratings
-            ratings1, ratings2 = [[
-                self.evolve(last_comparison[sublabel], time)
-                for sublabel in label] for label in [label1, label2]
-            ]
-
-            # compute weighted average of sublabel ratings
-            rating1, rating2 = [
-                np.average(ratings, weights=weights)
-                for ratings in [ratings1, ratings2]
-            ]
+            # query ratings at the specified time
+            rating1 = self.rating(time, label1, last_update=last_update)
+            rating2 = self.rating(time, label2, last_update=last_update)
 
             # expected and observed comparison outcomes
             total_bias = self.prior_bias + bias
@@ -350,13 +341,18 @@ class Melo(object):
 
             # update ratings
             rating_update = self.k * (obs - pred)
-            ratings1 = np.array(ratings1) + rating_update
-            ratings2 = np.array(ratings2) + self.conjugate(rating_update)
+            rating1 = rating1 + rating_update
+            rating2 = rating2 + self.conjugate(rating_update)
 
-            for label, ratings in [(labels1, ratings1), (labels2, ratings2)]:
-                for label, rating in zip(labels, ratings):
-                    self.record[label].append((time, rating))
-                    last_comparison[label] = {'time': time, 'rating': rating}
+            # update label1 ratings
+            for sublabel1 in label1.split('|'):
+                self.record[sublabel1].append((time, rating1))
+                last_update[sublabel1] = (time, rating1)
+
+            # update label2 ratings
+            for sublabel2 in label2.split('|'):
+                self.record[sublabel2].append((time, rating2))
+                last_update[sublabel2] = (time, rating2)
 
         # convert ratings history to a structured rec.array
         for label in self.record.keys():
@@ -390,8 +386,8 @@ class Melo(object):
             Default is 0, i.e. no bias.
 
         """
-        rating1 = self.query_rating(time, label1)
-        rating2 = self.query_rating(time, label2)
+        rating1 = self.rating(time, label1)
+        rating2 = self.rating(time, label2)
 
         total_bias = self.prior_bias + bias
         rating_diff = rating1 + self.conjugate(rating2) + total_bias
