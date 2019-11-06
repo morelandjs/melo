@@ -5,7 +5,6 @@
 from __future__ import division
 import sys
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 from .dist import normal, logistic
@@ -136,15 +135,17 @@ class Melo(object):
                 )
             self.conjugate = lambda x: -x[::-1]
 
-        self.first_update = None
-        self.last_update = None
+        self.min_time = None
+        self.max_time = None
         self.labels = None
+        self.sep = None
         self.training_data = None
         self.prior_bias = None
-        self.prior_rating = None
+        self.prior_rating_dict = None
         self.record = None
 
-    def _read_training_data(self, times, labels1, labels2, values, biases):
+    def _read_training_data(
+            self, times, labels1, labels2, values, biases, sep='-'):
         """
         Internal function: Read training inputs and initialize class variables
 
@@ -178,11 +179,14 @@ class Melo(object):
         else:
             biases = np.array(biases, dtype='float', ndmin=1)
 
-        self.first_update = times.min()
-        self.last_update = times.max()
+        self.sep = sep
+
+        self.min_time = times.min()
+        self.max_time = times.max()
+
         self.labels = np.union1d(
-            [l.split('|') for l in labels1],
-            [l.split('|') for l in labels2],
+            [l.split(self.sep) for l in labels1],
+            [l.split(self.sep) for l in labels2],
         )
 
         self.training_data = np.sort(
@@ -200,6 +204,7 @@ class Melo(object):
                 'bias',
             )), order='time', axis=0)
 
+        values = self.training_data.value
         prior_prob = np.mean(values[:, np.newaxis] - self.lines > 0, axis=0)
 
         TINY = 1e-6
@@ -208,31 +213,31 @@ class Melo(object):
 
         self.prior_bias = np.median(rating_diff) if not self.commutes else 0
 
-        if self.prior_rating is None:
-            self.prior_rating = {
-                label: 0.5*(rating_diff - self.prior_bias)
-                for label in np.append(self.labels, 'average')
-            }
+        self.prior_rating_dict = {
+            label: 0.5*(rating_diff - self.prior_bias)
+            for label in np.append(self.labels, 'average')
+        }
 
-    def last_update_(self, time, label):
+    def prior_rating(self, label):
+        """
+        Prior rating for observed and unobserved labels.
+
+        """
+        return self.prior_rating_dict[label]
+
+    def last_update(self, time, label):
         """
         Label's last observed (time, rating) tuple preceding the specified time.
 
         """
         time = np.datetime64(time, 's')
 
-        if label not in self.record:
-            sys.exit('error: no such label in comparisons')
-
         try:
-            time_last, rating_last = self.record[label][
-                np.nonzero(self.record[label].time < time)
-            ][-1]
-
-            return time_last, rating_last
-
-        except IndexError:
-            return self.first_update, self.prior_rating[label]
+            record = self.record[label]
+            last_record = record[np.nonzero(record.time < time)][-1]
+            return last_record.time, last_record.rating
+        except (IndexError, KeyError):
+            return self.min_time, self.prior_rating(label)
 
     def evolve(self, rating, prior_rating, time_delta):
         """
@@ -266,22 +271,24 @@ class Melo(object):
         Query label's rating at the specified time.
 
         """
-        if '|' in label:
+        if self.sep in label:
             sublabel_ratings = [
                 self.rating(time, sublabel, last_update)
-                for sublabel in label.split('|')
+                for sublabel in label.split(self.sep)
             ]
 
-            #return np.mean(sublabel_ratings, axis=0)
-            return sublabel_ratings[0]
+            return self.combine(*sublabel_ratings)
+
+        if label == 'average':
+            return self.prior_rating('average')
 
         time_last, rating_last = (
-            self.last_update_(time, label)
+            self.last_update(time, label)
             if last_update is None else
             last_update[label]
         )
 
-        prior_rating = self.prior_rating[label]
+        prior_rating = self.prior_rating(label)
 
         return self.evolve(rating_last, prior_rating, time - time_last)
 
@@ -322,7 +329,7 @@ class Melo(object):
 
         # dictionary that stores each label's last comparison
         last_update = {
-            label: (self.first_update, self.prior_rating[label])
+            label: (self.min_time, self.prior_rating(label))
             for label in self.labels
         }
 
@@ -330,8 +337,8 @@ class Melo(object):
         for (time, label1, label2, value, bias) in self.training_data:
 
             # query ratings at the specified time
-            rating1 = self.rating(time, label1, last_update=last_update)
-            rating2 = self.rating(time, label2, last_update=last_update)
+            rating1 = self.rating(time, label1, last_update)
+            rating2 = self.rating(time, label2, last_update)
 
             # expected and observed comparison outcomes
             total_bias = self.prior_bias + bias
@@ -345,12 +352,12 @@ class Melo(object):
             rating2 = rating2 + self.conjugate(rating_update)
 
             # update label1 ratings
-            for sublabel1 in label1.split('|'):
+            for sublabel1 in label1.split(self.sep):
                 self.record[sublabel1].append((time, rating1))
                 last_update[sublabel1] = (time, rating1)
 
             # update label2 ratings
-            for sublabel2 in label2.split('|'):
+            for sublabel2 in label2.split(self.sep):
                 self.record[sublabel2].append((time, rating2))
                 last_update[sublabel2] = (time, rating2)
 
@@ -733,7 +740,7 @@ class Melo(object):
 
         return quantiles
 
-    def rank(self, time, statistic='mean'):
+    def rank(self, time, labels=None, statistic='mean'):
         """
         Ranks labels by comparing each label to the average label using
         the specified summary statistic.
@@ -765,9 +772,11 @@ class Melo(object):
 
         remove_bias = -self.prior_bias
 
+        labels = self.labels if labels is None else labels
+
         ranked_list = [
             (label, np.float(func(time, label, 'average', biases=remove_bias)))
-            for label in self.labels
+            for label in labels
         ]
 
         return sorted(ranked_list, key=lambda v: v[1], reverse=True)
