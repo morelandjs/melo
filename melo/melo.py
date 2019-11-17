@@ -89,7 +89,7 @@ class Melo(object):
         'attosecond': 1e-18,
     }
 
-    def __init__(self, k, lines=0, sigma=0, regress=lambda x: 0,
+    def __init__(self, k, lines=0, sigma=0, regress=None,
                  regress_unit='year', dist='normal',
                  combine=np.mean, commutes=False):
 
@@ -105,10 +105,10 @@ class Melo(object):
 
         self.sigma = np.float(max(sigma, 1e-12))
 
+        self.regress = self._identity if regress is None else regress
+
         if not callable(regress):
             raise ValueError('regress must be univariate scalar function')
-
-        self.regress = regress
 
         if regress_unit not in self.seconds.keys():
             raise ValueError('regress_unit must be valid time unit (see docs)')
@@ -127,13 +127,13 @@ class Melo(object):
         self.commutes = commutes
 
         if commutes is True:
-            self.conjugate = lambda x: x
+            self.conjugate = self._identity
         else:
             if all(self.lines != -self.lines[::-1]):
                 raise ValueError(
                     "lines must be symmetric when commutes is False"
                 )
-            self.conjugate = lambda x: -x[::-1]
+            self.conjugate = self._neg_flip
 
         self.min_time = None
         self.max_time = None
@@ -143,6 +143,20 @@ class Melo(object):
         self.prior_bias = None
         self.prior_rating_dict = None
         self.record = None
+
+    def _identity(self, x):
+        """
+        Array identity transformation
+
+        """
+        return x
+
+    def _neg_flip(self, x):
+        """
+        Negates the array and flips the order of its elements
+
+        """
+        return -x[::-1]
 
     def _read_training_data(
             self, times, labels1, labels2, values, biases, sep='-'):
