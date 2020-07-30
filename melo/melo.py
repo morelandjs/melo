@@ -84,7 +84,7 @@ class Melo(object):
         'attosecond': 1e-18,
     }
 
-    def __init__(self, k, lines=0, sigma=0, regress=lambda x: 0,
+    def __init__(self, k, lines=0, sigma=0, regress=None,
                  regress_unit='year', dist='normal', commutes=False):
 
         if k < 0 or not np.isscalar(k):
@@ -98,6 +98,9 @@ class Melo(object):
             raise ValueError('sigma must be a non-negative real number')
 
         self.sigma = np.float(max(sigma, 1e-12))
+
+        if regress is None:
+            self.regress = self.default_regress
 
         if not callable(regress):
             raise ValueError('regress must be univariate scalar function')
@@ -119,13 +122,13 @@ class Melo(object):
         self.commutes = commutes
 
         if commutes is True:
-            self.conjugate = lambda x: x
+            self.conjugate = self.identity
         else:
             if all(self.lines != -self.lines[::-1]):
                 raise ValueError(
                     "lines must be symmetric when commutes is False"
                 )
-            self.conjugate = lambda x: -x[::-1]
+            self.conjugate = self.reverse_neg
 
         self.first_update = None
         self.last_update = None
@@ -134,6 +137,30 @@ class Melo(object):
         self.prior_bias = None
         self.prior_rating = None
         self.ratings_history = None
+
+    @staticmethod
+    def identity(x):
+        """
+        Identity function
+
+        """
+        return x
+
+    @staticmethod
+    def reverse_neg(x):
+        """
+        Negate reversed list
+
+        """
+        return -x[::-1]
+
+    @staticmethod
+    def default_regress(x):
+        """
+        Default regression function
+
+        """
+        return 0
 
     def _read_training_data(self, times, labels1, labels2, values, biases):
         """
