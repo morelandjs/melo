@@ -99,13 +99,10 @@ class Melo(object):
 
         self.sigma = np.float(max(sigma, 1e-12))
 
-        if regress is None:
-            self.regress = self.default_regress
+        self.regress = self.default_regress if regress is None else regress
 
-        if not callable(regress):
+        if not callable(self.regress):
             raise ValueError('regress must be univariate scalar function')
-
-        self.regress = regress
 
         if regress_unit not in self.seconds.keys():
             raise ValueError('regress_unit must be valid time unit (see docs)')
