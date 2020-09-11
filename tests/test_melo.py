@@ -5,7 +5,7 @@ import warnings
 
 import numpy as np
 
-from ..melo import Melo
+from melo import Melo
 
 
 def test_class_init():
