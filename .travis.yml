@@ -12,8 +12,10 @@ before_install:
   - openssl aes-256-cbc -K $encrypted_92725ca94bf5_key -iv $encrypted_92725ca94bf5_iv
     -in docs/deploy-key.enc -out docs/deploy-key -d
 install:
-  - pip install numpy scipy>=0.18.0
-  - pip install sphinx sphinx_rtd_theme
+  - pip install numpy scipy>=0.18.0 sphinx sphinx_rtd_theme
   - pip install --verbose --editable .
+script:
+  - python3 setup.py tests
+  - python3 setup.py docs
 after_success:
   - bash docs/deploy_script.sh

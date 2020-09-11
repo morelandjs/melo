@@ -13,7 +13,7 @@ mv deploy-key ~/.ssh/id_rsa
 if [ $TRAVIS_BRANCH == "master" ]; then
     git init
 
-    git remote add deploy "deploy@157.230.188.74:/home/deploy/pycon"
+    git remote add deploy "deploy@157.230.188.74:/home/deploy/melo"
     git config user.name "Travis CI"
     git config user.email "morelandjs@gmail.com"
 
