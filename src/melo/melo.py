@@ -633,7 +633,7 @@ class Melo(object):
         for time, label1, label2, bias in zip(times, labels1, labels2, biases):
             x, F = self._predict(time, label1, label2, bias=bias)
             mean = np.trapz(F, x) - (x[-1]*F[-1] - x[0]*F[0])
-            means.append(np.asscalar(mean))
+            means.append(mean.item())
 
         return np.squeeze(means)
 
