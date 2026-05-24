@@ -97,7 +97,7 @@ class Melo(object):
         if sigma < 0 or not np.isscalar(sigma):
             raise ValueError('sigma must be a non-negative real number')
 
-        self.sigma = np.float(max(sigma, 1e-12))
+        self.sigma = float(max(sigma, 1e-12))
 
         self.regress = self.default_regress if regress is None else regress
 
@@ -788,7 +788,7 @@ class Melo(object):
         remove_bias = -self.prior_bias
 
         ranked_list = [
-            (label, np.float(func(time, label, 'average', biases=remove_bias)))
+            (label, float(func(time, label, 'average', biases=remove_bias)))
             for label in self.labels
         ]
 
