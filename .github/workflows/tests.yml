@@ -14,6 +14,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+          cache-dependency-path: setup.cfg
       - run: pip install numpy "scipy>=0.18.0"
       - run: pip install --editable .
       - run: python setup.py tests
