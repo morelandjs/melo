@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from nose.tools import assert_almost_equal, assert_raises
+import pytest
 import warnings
 
 import numpy as np
@@ -17,7 +17,8 @@ def test_class_init():
     melo = Melo(0, lines=np.array(0))
 
     # assert commutes=False requires symmetric lines
-    assert_raises(ValueError, Melo, 0, [-1, 2])
+    with pytest.raises(ValueError):
+        Melo(0, [-1, 2])
 
     # single comparison
     time = np.datetime64('now')
@@ -68,13 +69,13 @@ def test_prior_rating():
     values = np.append(np.ones(50), -np.ones(50))
     melo.fit(times, labels1, labels2, values)
     prob = melo.probability(0, 'alpha', 'beta')
-    assert_almost_equal(prob, .5)
+    assert prob == pytest.approx(.5)
 
     # test null rating for 10-90 outcome
     values = np.append(np.ones(10), -np.ones(90))
     melo.fit(times, labels1, labels2, values)
     prob = melo.probability(0, 'alpha', 'beta')
-    assert_almost_equal(prob, .1)
+    assert prob == pytest.approx(.1)
 
 
 def test_evolve():
@@ -129,10 +130,10 @@ def test_query_rating():
     )
 
     rating = melo.query_rating(time, 'alpha')
-    assert_almost_equal(rating, 1)
+    assert rating == pytest.approx(1)
 
     rating = melo.query_rating(time + one_hour, 'alpha')
-    assert_almost_equal(rating, 2)
+    assert rating == pytest.approx(2)
 
 
 def test_rate():
